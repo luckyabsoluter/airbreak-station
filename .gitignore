@@ -1,0 +1,19 @@
+# Private firmware and generated firmware images.
+firmware/*.bin
+firmware/*.elf
+firmware/*.hex
+firmware/*.srec
+firmware/*.img
+artifacts/
+patches/out/
+
+# Emulator work directories and evidence runs.
+.work/
+.airbreak-rust-runs/
+
+# Local logs and transient files.
+logs/
+*.log
+*.tmp
+__pycache__/
+*.py[cod]

@@ -1,0 +1,67 @@
+# AirBreak STM32F405 profile for nviennot/stm32-emulator.
+# scripts/run-gui.sh substitutes absolute paths in a project-local run directory.
+# Do not add a `patches:` section here; the target firmware must remain unmodified.
+cpu:
+  svd: @SVD@
+  vector_table: 0x08000000
+regions:
+  - name: FLASH_ALIAS
+    start: 0x00000000
+    load: @FIRMWARE@
+    size: 0x100000
+  - name: FLASH
+    start: 0x08000000
+    load: @FIRMWARE@
+    size: 0x200000
+  - name: SYSTEM_ROM_1
+    start: 0x1FFF0000
+    size: 0xC000
+  - name: OPTION_AND_SYSTEM_ROM_2
+    start: 0x1FFFC000
+    size: 0x4000
+  - name: AIRBREAK_IO_STUB
+    start: 0x10000000
+    size: 0x00100000
+  - name: SRAM
+    start: 0x20000000
+    size: 0x00040000
+  - name: FSMC_BANK1_LOW
+    start: 0x60000000
+    size: 0x04000000
+  - name: FSMC_BANK1_HIGH
+    start: 0x68000000
+    size: 0x08000000
+framebuffers:
+  - name: LCD
+    width: @FB_WIDTH@
+    height: @FB_HEIGHT@
+    mode: rgb565
+    control_panel: true
+@FRAMEBUFFER_BACKEND@
+devices:
+  front_panel:
+    - power_button_pin: PG8
+      home_button_pin: PG7
+      encoder_button_pin: PG11
+      encoder_a_pin: PF10
+      encoder_b_pin: PF11
+      rotary_provider_obj: "0x200174e4"
+      idle_high: true
+  m95m02:
+    - peripheral: SPI3
+      chip_select_pin: PA15
+  usart_probe:
+    - peripheral: USART1
+    - peripheral: USART2
+    - peripheral: USART3
+  display:
+    - peripheral: FSMC.BANK1
+      framebuffer: LCD
+      cmd_addr_bit: 0x2
+      swap_bytes: false
+      bgr_to_rgb: true
+      replies:
+        - cmd: 0x04
+          data: [0x30, 0x54, 0x80, 0x66]
+        - cmd: 0xd3
+          data: [0x00, 0x00, 0x93, 0x41]
