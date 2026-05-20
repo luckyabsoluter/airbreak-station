@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import struct
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -91,6 +92,28 @@ SUPPORTED_BUILD_IDS = {
 KNOWN_UI_SCREENS = ("block_breaker", "custom_about", "clinical_mode")
 DEFAULT_UI_SCREENS = ("block_breaker", "custom_about", "clinical_mode")
 
+
+@dataclass(frozen=True)
+class FirmwareLayout:
+    text_delta: int
+    my_options_ptr_slot: int
+    back_ptr_slot: int
+    back_text_va: int
+    blank_text_va: int
+    clinical_label_ptr: int
+    clinical_label_orig_va: int
+    custom_about_label_ptr: int
+    custom_about_detail_ptr: int
+    block_breaker_label_ptr: int
+    custom_page_title_ptr: int
+    block_breaker_status_ptr: int
+    block_breaker_row0_ptr: int
+    block_breaker_row1_ptr: int
+    block_breaker_row2_ptr: int
+    block_breaker_left_label_ptr: int
+    block_breaker_right_label_ptr: int
+    block_breaker_fire_label_ptr: int
+
 # Legacy built-in code-cave stub @ 0x080FF000.
 # Current station pipeline uses an external stub; this remains only for manual
 # experiments against older append-hook sites.
@@ -155,6 +178,162 @@ def encode_movs_imm_hword(imm: int) -> int:
     if imm < 0 or imm > 0xFF:
         raise RuntimeError(f"Thumb movs immediate out of range: {imm}")
     return 0x2200 | imm
+
+
+def read_u32(buf: bytes | bytearray, off: int) -> int:
+    if off < 0 or off + 4 > len(buf):
+        raise RuntimeError(f"u32 read out of range: 0x{off:08X}")
+    return struct.unpack_from("<I", buf, off)[0]
+
+
+def find_all(buf: bytes, needle: bytes) -> list[int]:
+    out: list[int] = []
+    start = 0
+    while True:
+        off = buf.find(needle, start)
+        if off < 0:
+            return out
+        out.append(off)
+        start = off + 1
+
+
+def find_ascii_cstring(buf: bytes, text: str, name: str) -> int:
+    matches = find_all(buf, text.encode("ascii") + b"\x00")
+    if not matches:
+        raise RuntimeError(f"unable to resolve firmware text anchor: {name}")
+    return matches[0]
+
+
+def pointer_slots_for_va(buf: bytes, va: int) -> list[int]:
+    return [
+        off
+        for off in find_all(buf, struct.pack("<I", va))
+        if 0x00010000 <= off <= 0x00030000 and (off & 0x03) == 0
+    ]
+
+
+def flash_ptr_to_off(ptr: int, fw_len: int) -> int | None:
+    if FLASH_BASE <= ptr < FLASH_BASE + fw_len:
+        return ptr - FLASH_BASE
+    return None
+
+
+def points_to_ascii_cstring(buf: bytes | bytearray, ptr: int, text: str) -> bool:
+    off = flash_ptr_to_off(ptr, len(buf))
+    if off is None:
+        return False
+    expected = text.encode("ascii") + b"\x00"
+    return bytes(buf[off : off + len(expected)]) == expected
+
+
+def points_to_empty_cstring(buf: bytes | bytearray, ptr: int) -> bool:
+    off = flash_ptr_to_off(ptr, len(buf))
+    return off is not None and off < len(buf) and buf[off] == 0
+
+
+def discover_blank_text_va(buf: bytes, candidate_slots: list[int], table_anchor: int) -> int:
+    counts: dict[int, int] = {}
+
+    for slot in candidate_slots:
+        if slot < 0 or slot + 4 > len(buf):
+            continue
+        ptr = read_u32(buf, slot)
+        if points_to_empty_cstring(buf, ptr):
+            counts[ptr] = counts.get(ptr, 0) + 8
+
+    scan_start = max(0, table_anchor - 0x400)
+    scan_end = min(len(buf) - 4, table_anchor + 0x4000)
+    for slot in range(scan_start, scan_end + 1, 4):
+        ptr = read_u32(buf, slot)
+        if points_to_empty_cstring(buf, ptr):
+            counts[ptr] = counts.get(ptr, 0) + 1
+
+    if not counts:
+        raise RuntimeError("unable to resolve blank text pointer for firmware layout")
+    return max(counts.items(), key=lambda item: item[1])[0]
+
+
+def resolve_firmware_layout(fw: bytes, ui_screen_set: set[str]) -> FirmwareLayout:
+    my_options_off = find_ascii_cstring(fw, "My Options", "My Options")
+    my_options_va = FLASH_BASE + my_options_off
+    my_options_slots = pointer_slots_for_va(fw, my_options_va)
+    if not my_options_slots:
+        raise RuntimeError("unable to resolve My Options pointer slot")
+
+    back_off = find_ascii_cstring(fw, "Back", "Back")
+    back_va = FLASH_BASE + back_off
+    view_oximeter_off = find_ascii_cstring(fw, "View Oximeter", "View Oximeter")
+    view_oximeter_va = FLASH_BASE + view_oximeter_off
+
+    errors: list[str] = []
+    for my_options_slot in my_options_slots:
+        text_delta = my_options_slot - OFF_TEXT_PTR_TABLE_MY_OPTIONS
+        back_ptr_slot = OFF_TEXT_PTR_TABLE_BACK + text_delta
+        clinical_label_ptr = OFF_CLINICAL_MODE_LABEL_PTR + text_delta
+        custom_about_label_ptr = OFF_CUSTOM_ABOUT_LABEL_PTR + text_delta
+        custom_about_detail_ptr = OFF_CUSTOM_ABOUT_DETAIL_PTR + text_delta
+        block_breaker_label_ptr = OFF_BLOCK_BREAKER_LABEL_PTR + text_delta
+        custom_page_title_ptr = OFF_CUSTOM_PAGE_TITLE_PTR + text_delta
+        block_breaker_status_ptr = OFF_BLOCK_BREAKER_STATUS_PTR + text_delta
+        block_breaker_row0_ptr = OFF_BLOCK_BREAKER_ROW0_PTR + text_delta
+        block_breaker_row1_ptr = OFF_BLOCK_BREAKER_ROW1_PTR + text_delta
+        block_breaker_row2_ptr = OFF_BLOCK_BREAKER_ROW2_PTR + text_delta
+        block_breaker_left_label_ptr = OFF_BLOCK_BREAKER_LEFT_LABEL_PTR + text_delta
+        block_breaker_right_label_ptr = OFF_BLOCK_BREAKER_RIGHT_LABEL_PTR + text_delta
+        block_breaker_fire_label_ptr = OFF_BLOCK_BREAKER_FIRE_LABEL_PTR + text_delta
+
+        try:
+            if read_u32(fw, back_ptr_slot) != back_va:
+                raise RuntimeError(
+                    f"Back pointer mismatch at 0x{back_ptr_slot:08X}: "
+                    f"got 0x{read_u32(fw, back_ptr_slot):08X}, expected 0x{back_va:08X}"
+                )
+            if "clinical_mode" in ui_screen_set and read_u32(fw, clinical_label_ptr) != view_oximeter_va:
+                cur_clinical = read_u32(fw, clinical_label_ptr)
+                if not (OFF_CODE_CAVE <= cur_clinical - FLASH_BASE < 0x00100000):
+                    raise RuntimeError(
+                        f"Clinical label pointer mismatch at 0x{clinical_label_ptr:08X}: "
+                        f"got 0x{cur_clinical:08X}, expected 0x{view_oximeter_va:08X}"
+                    )
+
+            blank_slots = [
+                custom_about_label_ptr,
+                custom_about_detail_ptr,
+                block_breaker_label_ptr,
+                custom_page_title_ptr,
+                block_breaker_status_ptr,
+                block_breaker_row0_ptr,
+                block_breaker_row1_ptr,
+                block_breaker_row2_ptr,
+                block_breaker_left_label_ptr,
+                block_breaker_right_label_ptr,
+                block_breaker_fire_label_ptr,
+            ]
+            blank_text_va = discover_blank_text_va(fw, blank_slots, my_options_slot)
+            return FirmwareLayout(
+                text_delta=text_delta,
+                my_options_ptr_slot=my_options_slot,
+                back_ptr_slot=back_ptr_slot,
+                back_text_va=back_va,
+                blank_text_va=blank_text_va,
+                clinical_label_ptr=clinical_label_ptr,
+                clinical_label_orig_va=view_oximeter_va,
+                custom_about_label_ptr=custom_about_label_ptr,
+                custom_about_detail_ptr=custom_about_detail_ptr,
+                block_breaker_label_ptr=block_breaker_label_ptr,
+                custom_page_title_ptr=custom_page_title_ptr,
+                block_breaker_status_ptr=block_breaker_status_ptr,
+                block_breaker_row0_ptr=block_breaker_row0_ptr,
+                block_breaker_row1_ptr=block_breaker_row1_ptr,
+                block_breaker_row2_ptr=block_breaker_row2_ptr,
+                block_breaker_left_label_ptr=block_breaker_left_label_ptr,
+                block_breaker_right_label_ptr=block_breaker_right_label_ptr,
+                block_breaker_fire_label_ptr=block_breaker_fire_label_ptr,
+            )
+        except RuntimeError as exc:
+            errors.append(f"candidate 0x{my_options_slot:08X}: {exc}")
+
+    raise RuntimeError("unable to resolve supported firmware text layout; " + "; ".join(errors))
 
 
 def encode_thumb_bl(src_addr: int, dst_addr: int) -> bytes:
@@ -795,8 +974,7 @@ def main() -> None:
     detected_build = detect_build_id(bytes(fw))
     expected_sig = SUPPORTED_BUILD_IDS[args.target_build]
     assert_bytes(fw, OFF_BUILD_ID, expected_sig, "target_build")
-    assert_dword(fw, OFF_TEXT_PTR_TABLE_MY_OPTIONS, FLASH_BASE + OFF_MY_OPTIONS_EN, "my_options_ptr")
-    assert_dword(fw, OFF_TEXT_PTR_TABLE_BACK, FLASH_BASE + OFF_BACK_EN, "back_ptr")
+    layout = resolve_firmware_layout(bytes(fw), ui_screen_set)
 
     startup_window = bytes(fw[OFF_STARTUP_CHECK_CMP : OFF_STARTUP_CHECK_CMP + 4])
     startup_is_orig = startup_window == BYTES_ORIG_STARTUP_CHECK
@@ -964,67 +1142,67 @@ def main() -> None:
             block_breaker_fire_label_va = FLASH_BASE + OFF_CODE_CAVE + block_breaker_fire_label_off
 
         if args.patch_custom_about_label:
-            cur_label_ptr = struct.unpack_from("<I", fw, OFF_CUSTOM_ABOUT_LABEL_PTR)[0]
-            valid_label_ptrs = (ADDR_ORIG_BLANK_TEXT, custom_label_va)
+            cur_label_ptr = struct.unpack_from("<I", fw, layout.custom_about_label_ptr)[0]
+            valid_label_ptrs = (layout.blank_text_va, custom_label_va)
             if cur_label_ptr not in valid_label_ptrs:
                 raise RuntimeError(
-                    f"unexpected AirBreak Custom About label pointer at 0x{OFF_CUSTOM_ABOUT_LABEL_PTR:08X}: "
+                    f"unexpected AirBreak Custom About label pointer at 0x{layout.custom_about_label_ptr:08X}: "
                     f"0x{cur_label_ptr:08X} (expected 0x{valid_label_ptrs[0]:08X} or "
                     f"0x{valid_label_ptrs[1]:08X})"
                 )
-            struct.pack_into("<I", fw, OFF_CUSTOM_ABOUT_LABEL_PTR, custom_label_va)
+            struct.pack_into("<I", fw, layout.custom_about_label_ptr, custom_label_va)
             custom_label_patch_applied = True
 
         if args.patch_custom_about_detail:
-            cur_detail_ptr = struct.unpack_from("<I", fw, OFF_CUSTOM_ABOUT_DETAIL_PTR)[0]
-            valid_detail_ptrs = (ADDR_ORIG_BLANK_TEXT, custom_detail_va)
+            cur_detail_ptr = struct.unpack_from("<I", fw, layout.custom_about_detail_ptr)[0]
+            valid_detail_ptrs = (layout.blank_text_va, custom_detail_va)
             if cur_detail_ptr not in valid_detail_ptrs:
                 raise RuntimeError(
-                    f"unexpected AirBreak Custom About detail pointer at 0x{OFF_CUSTOM_ABOUT_DETAIL_PTR:08X}: "
+                    f"unexpected AirBreak Custom About detail pointer at 0x{layout.custom_about_detail_ptr:08X}: "
                     f"0x{cur_detail_ptr:08X} (expected 0x{valid_detail_ptrs[0]:08X} or "
                     f"0x{valid_detail_ptrs[1]:08X})"
                 )
-            struct.pack_into("<I", fw, OFF_CUSTOM_ABOUT_DETAIL_PTR, custom_detail_va)
+            struct.pack_into("<I", fw, layout.custom_about_detail_ptr, custom_detail_va)
             custom_detail_patch_applied = True
 
         if args.patch_clinical_label:
-            cur_clinical_ptr = struct.unpack_from("<I", fw, OFF_CLINICAL_MODE_LABEL_PTR)[0]
-            valid_clinical_ptrs = (ADDR_ORIG_CLINICAL_MODE_LABEL, clinical_label_va)
+            cur_clinical_ptr = struct.unpack_from("<I", fw, layout.clinical_label_ptr)[0]
+            valid_clinical_ptrs = (layout.clinical_label_orig_va, clinical_label_va)
             if cur_clinical_ptr not in valid_clinical_ptrs:
                 raise RuntimeError(
-                    f"unexpected Clinical Mode label pointer at 0x{OFF_CLINICAL_MODE_LABEL_PTR:08X}: "
+                    f"unexpected Clinical Mode label pointer at 0x{layout.clinical_label_ptr:08X}: "
                     f"0x{cur_clinical_ptr:08X} (expected 0x{valid_clinical_ptrs[0]:08X} or "
                     f"0x{valid_clinical_ptrs[1]:08X})"
                 )
-            struct.pack_into("<I", fw, OFF_CLINICAL_MODE_LABEL_PTR, clinical_label_va)
+            struct.pack_into("<I", fw, layout.clinical_label_ptr, clinical_label_va)
             clinical_label_patch_applied = True
 
         if args.patch_block_breaker_labels:
             patch_pointer_slot(
                 fw,
-                OFF_BLOCK_BREAKER_LABEL_PTR,
-                ADDR_ORIG_BLANK_TEXT,
+                layout.block_breaker_label_ptr,
+                layout.blank_text_va,
                 block_breaker_label_va,
                 "Block Breaker label",
             )
             patch_pointer_slot(
                 fw,
-                OFF_BLOCK_BREAKER_LEFT_LABEL_PTR,
-                ADDR_ORIG_BLANK_TEXT,
+                layout.block_breaker_left_label_ptr,
+                layout.blank_text_va,
                 block_breaker_left_label_va,
                 "Block Breaker left label",
             )
             patch_pointer_slot(
                 fw,
-                OFF_BLOCK_BREAKER_RIGHT_LABEL_PTR,
-                ADDR_ORIG_BLANK_TEXT,
+                layout.block_breaker_right_label_ptr,
+                layout.blank_text_va,
                 block_breaker_right_label_va,
                 "Block Breaker right label",
             )
             patch_pointer_slot(
                 fw,
-                OFF_BLOCK_BREAKER_FIRE_LABEL_PTR,
-                ADDR_ORIG_BLANK_TEXT,
+                layout.block_breaker_fire_label_ptr,
+                layout.blank_text_va,
                 block_breaker_fire_label_va,
                 "Block Breaker fire label",
             )
@@ -1033,15 +1211,15 @@ def main() -> None:
         if args.patch_custom_about_page or args.patch_block_breaker_page:
             patch_pointer_slot(
                 fw,
-                OFF_CUSTOM_PAGE_TITLE_PTR,
-                ADDR_ORIG_BLANK_TEXT,
+                layout.custom_page_title_ptr,
+                layout.blank_text_va,
                 ADDR_CUSTOM_PAGE_TITLE_TEXT,
                 "AirBreak custom page title text",
             )
             patch_pointer_slot(
                 fw,
-                OFF_BLOCK_BREAKER_STATUS_PTR,
-                ADDR_ORIG_BLANK_TEXT,
+                layout.block_breaker_status_ptr,
+                layout.blank_text_va,
                 ADDR_BLOCK_BREAKER_STATUS_TEXT,
                 "AirBreak page body text",
             )
@@ -1050,22 +1228,22 @@ def main() -> None:
         if args.patch_block_breaker_dynamic_text:
             patch_pointer_slot(
                 fw,
-                OFF_BLOCK_BREAKER_ROW0_PTR,
-                ADDR_ORIG_BLANK_TEXT,
+                layout.block_breaker_row0_ptr,
+                layout.blank_text_va,
                 ADDR_BLOCK_BREAKER_ROW0_TEXT,
                 "Block Breaker row 0 text",
             )
             patch_pointer_slot(
                 fw,
-                OFF_BLOCK_BREAKER_ROW1_PTR,
-                ADDR_ORIG_BLANK_TEXT,
+                layout.block_breaker_row1_ptr,
+                layout.blank_text_va,
                 ADDR_BLOCK_BREAKER_ROW1_TEXT,
                 "Block Breaker row 1 text",
             )
             patch_pointer_slot(
                 fw,
-                OFF_BLOCK_BREAKER_ROW2_PTR,
-                ADDR_ORIG_BLANK_TEXT,
+                layout.block_breaker_row2_ptr,
+                layout.blank_text_va,
                 ADDR_BLOCK_BREAKER_ROW2_TEXT,
                 "Block Breaker row 2 text",
             )
@@ -1367,6 +1545,12 @@ def main() -> None:
     print("Patched:", args.output_bin)
     print("  mode               :", "append-new-item")
     print("  build guard        :", f"target={args.target_build}, detected={detected_build}")
+    print(
+        "  text layout        :",
+        f"delta=0x{layout.text_delta:X}",
+        f"my_options_ptr@0x{layout.my_options_ptr_slot:08X}",
+        f"blank=0x{layout.blank_text_va:08X}",
+    )
     print("  ui screens         :", ",".join(ui_screens) if ui_screens else "(none)")
     print("  startup-check patch:", "enabled" if startup_patch_applied else "skipped (--skip-startup-check)")
     print("  capacity imm patch :", "enabled" if capacity_patch_applied else "disabled")
@@ -1411,13 +1595,13 @@ def main() -> None:
         if block_breaker_label_patch_applied:
             print(
                 f"  block label        : '{args.block_breaker_label}' "
-                f"ptr@0x{OFF_BLOCK_BREAKER_LABEL_PTR:08X} -> 0x{block_breaker_label_va:08X}"
+                f"ptr@0x{layout.block_breaker_label_ptr:08X} -> 0x{block_breaker_label_va:08X}"
             )
             print(
                 "  block legacy labels:",
-                f"left@0x{OFF_BLOCK_BREAKER_LEFT_LABEL_PTR:08X}->0x{block_breaker_left_label_va:08X}",
-                f"right@0x{OFF_BLOCK_BREAKER_RIGHT_LABEL_PTR:08X}->0x{block_breaker_right_label_va:08X}",
-                f"fire@0x{OFF_BLOCK_BREAKER_FIRE_LABEL_PTR:08X}->0x{block_breaker_fire_label_va:08X}",
+                f"left@0x{layout.block_breaker_left_label_ptr:08X}->0x{block_breaker_left_label_va:08X}",
+                f"right@0x{layout.block_breaker_right_label_ptr:08X}->0x{block_breaker_right_label_va:08X}",
+                f"fire@0x{layout.block_breaker_fire_label_ptr:08X}->0x{block_breaker_fire_label_va:08X}",
             )
         print(
             "  airbreak page text :",
@@ -1493,13 +1677,13 @@ def main() -> None:
         if custom_label_patch_applied:
             print(
                 f"  custom label       : '{args.custom_about_label}' "
-                f"ptr@0x{OFF_CUSTOM_ABOUT_LABEL_PTR:08X} -> 0x{custom_label_va:08X}"
+                f"ptr@0x{layout.custom_about_label_ptr:08X} -> 0x{custom_label_va:08X}"
             )
         print("  custom detail patch:", "enabled" if custom_detail_patch_applied else "disabled")
         if custom_detail_patch_applied:
             print(
                 f"  custom detail      : '{args.custom_about_detail}' "
-                f"ptr@0x{OFF_CUSTOM_ABOUT_DETAIL_PTR:08X} -> 0x{custom_detail_va:08X}"
+                f"ptr@0x{layout.custom_about_detail_ptr:08X} -> 0x{custom_detail_va:08X}"
             )
         print("  custom page patch  :", "enabled" if custom_page_patch_applied else "disabled")
         if custom_page_patch_applied:
@@ -1528,7 +1712,7 @@ def main() -> None:
         if clinical_label_patch_applied:
             print(
                 f"  clinical label     : '{args.clinical_label}' "
-                f"ptr@0x{OFF_CLINICAL_MODE_LABEL_PTR:08X} -> 0x{clinical_label_va:08X}"
+                f"ptr@0x{layout.clinical_label_ptr:08X} -> 0x{clinical_label_va:08X}"
             )
         if args.stub_bin is None:
             menu_text_va = FLASH_BASE + OFF_CODE_CAVE + menu_text_off

@@ -81,6 +81,10 @@ AIRBREAK_ENABLE_BLOCK_BREAKER=0 AIRBREAK_EMULATE=0 ./scripts/run-station-pipelin
 That builds a smaller payload, derives My Options capacity for two AirBreak rows, and does not patch the Block Breaker page,
 LCD render takeover, event gate, post-render tick hook, or Block Breaker text slots.
 
+The patch tool resolves the active `SX567-0401` text layout before writing label pointers. It anchors on firmware strings
+such as `My Options`, `Back`, and `View Oximeter`, computes the text-table delta for the model variant, and applies AirBreak
+label patches at the resolved slots instead of assuming one fixed model layout.
+
 ## Current Patch
 
 The active patch hooks the rendered My Options pages used by both `Essentials=On` and the `Essentials=Plus` expanded view, then appends the rows declared by the AirBreak UI screen model:
