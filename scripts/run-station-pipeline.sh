@@ -14,6 +14,81 @@ CUSTOM_ABOUT_DETAIL="${AIRBREAK_CUSTOM_ABOUT_DETAIL:-This is Custom About}"
 CLINICAL_LABEL="${AIRBREAK_CLINICAL_LABEL:-Clinical Mode}"
 BLOCK_BREAKER_LABEL="${AIRBREAK_BLOCK_BREAKER_LABEL:-Block Breaker}"
 
+DEFAULT_AIRBREAK_UI_SCREENS="block_breaker,custom_about,clinical_mode"
+if [[ -n "${AIRBREAK_ENABLE_BLOCK_BREAKER+x}" && -z "${AIRBREAK_UI_SCREENS+x}" ]]; then
+  if [[ "${AIRBREAK_ENABLE_BLOCK_BREAKER}" == "0" ]]; then
+    AIRBREAK_UI_SCREENS="custom_about,clinical_mode"
+  else
+    AIRBREAK_UI_SCREENS="${DEFAULT_AIRBREAK_UI_SCREENS}"
+  fi
+else
+  AIRBREAK_UI_SCREENS="${AIRBREAK_UI_SCREENS:-${DEFAULT_AIRBREAK_UI_SCREENS}}"
+fi
+
+ui_screen_enabled() {
+  case ",${AIRBREAK_UI_SCREENS}," in
+    *",$1,"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+ui_screen_id() {
+  case "$1" in
+    "") echo 0 ;;
+    block_breaker) echo 1 ;;
+    custom_about) echo 2 ;;
+    clinical_mode) echo 3 ;;
+    *)
+      echo "station_pipeline=fail stage=config reason=unknown_ui_screen screen=$1 result=fail" >&2
+      exit 1
+      ;;
+  esac
+}
+
+IFS=',' read -r -a AIRBREAK_UI_SCREEN_LIST <<< "${AIRBREAK_UI_SCREENS}"
+if [[ -z "${AIRBREAK_UI_SCREENS//,/}" ]]; then
+  echo "station_pipeline=fail stage=config reason=empty_ui_screens result=fail" >&2
+  exit 1
+fi
+if [[ "${#AIRBREAK_UI_SCREEN_LIST[@]}" -gt 3 ]]; then
+  echo "station_pipeline=fail stage=config reason=too_many_ui_screens screens=${AIRBREAK_UI_SCREENS} result=fail" >&2
+  exit 1
+fi
+SEEN_UI_SCREENS=","
+for screen in "${AIRBREAK_UI_SCREEN_LIST[@]}"; do
+  [[ -z "${screen}" ]] && continue
+  ui_screen_id "${screen}" >/dev/null
+  case "${SEEN_UI_SCREENS}" in
+    *",${screen},"*)
+      echo "station_pipeline=fail stage=config reason=duplicate_ui_screen screen=${screen} result=fail" >&2
+      exit 1
+      ;;
+  esac
+  SEEN_UI_SCREENS="${SEEN_UI_SCREENS}${screen},"
+done
+AIRBREAK_UI_SLOT0="$(ui_screen_id "${AIRBREAK_UI_SCREEN_LIST[0]:-}")"
+AIRBREAK_UI_SLOT1="$(ui_screen_id "${AIRBREAK_UI_SCREEN_LIST[1]:-}")"
+AIRBREAK_UI_SLOT2="$(ui_screen_id "${AIRBREAK_UI_SCREEN_LIST[2]:-}")"
+
+AIRBREAK_UI_HAS_BLOCK_BREAKER=0
+AIRBREAK_UI_HAS_CUSTOM_ABOUT=0
+AIRBREAK_UI_HAS_CLINICAL_MODE=0
+AIRBREAK_UI_ROW_COUNT=0
+if ui_screen_enabled block_breaker; then
+  AIRBREAK_UI_HAS_BLOCK_BREAKER=1
+  AIRBREAK_UI_ROW_COUNT=$((AIRBREAK_UI_ROW_COUNT + 1))
+fi
+if ui_screen_enabled custom_about; then
+  AIRBREAK_UI_HAS_CUSTOM_ABOUT=1
+  AIRBREAK_UI_ROW_COUNT=$((AIRBREAK_UI_ROW_COUNT + 1))
+fi
+if ui_screen_enabled clinical_mode; then
+  AIRBREAK_UI_HAS_CLINICAL_MODE=1
+  AIRBREAK_UI_ROW_COUNT=$((AIRBREAK_UI_ROW_COUNT + 1))
+fi
+COMPACT_CAPACITY_HWORD="$(printf '0x%04x' $((0x2200 + 11 + AIRBREAK_UI_ROW_COUNT)))"
+EXPANDED_CAPACITY_HWORD="$(printf '0x%04x' $((0x2200 + 16 + AIRBREAK_UI_ROW_COUNT)))"
+
 SRC="${ROOT_DIR}/patches/templates/my_options_essentials_mask_fit_patch.c"
 LD="${ROOT_DIR}/patches/templates/my_options_essentials_mask_fit_patch.ld"
 BUILD_SCRIPT="${ROOT_DIR}/patches/tools/build_function_patch.sh"
@@ -38,68 +113,117 @@ mkdir -p "${BUILD_DIR}" "$(dirname "${PATCHED_FIRMWARE}")"
 "${BUILD_SCRIPT}" \
   --src "${SRC}" \
   --ld "${LD}" \
-  --out-dir "${BUILD_DIR}"
+  --out-dir "${BUILD_DIR}" \
+  --define "AIRBREAK_UI_HAS_BLOCK_BREAKER=${AIRBREAK_UI_HAS_BLOCK_BREAKER}" \
+  --define "AIRBREAK_UI_HAS_CUSTOM_ABOUT=${AIRBREAK_UI_HAS_CUSTOM_ABOUT}" \
+  --define "AIRBREAK_UI_HAS_CLINICAL_MODE=${AIRBREAK_UI_HAS_CLINICAL_MODE}" \
+  --define "AIRBREAK_UI_SLOT0=${AIRBREAK_UI_SLOT0}" \
+  --define "AIRBREAK_UI_SLOT1=${AIRBREAK_UI_SLOT1}" \
+  --define "AIRBREAK_UI_SLOT2=${AIRBREAK_UI_SLOT2}"
 
-CUSTOM_PAGE_HOOK_TARGET="$(
-  arm-none-eabi-nm "${STUB_ELF}" |
-    awk '$3 == "patch_custom_about_page_tail_hook" { print "0x" $1; found=1 } END { if (!found) exit 1 }'
-)"
+CUSTOM_PAGE_HOOK_TARGET=""
+CUSTOM_PAGE_SEED_HOOK_TARGET=""
+if [[ "${AIRBREAK_UI_HAS_CUSTOM_ABOUT}" == "1" || "${AIRBREAK_UI_HAS_BLOCK_BREAKER}" == "1" ]]; then
+  CUSTOM_PAGE_HOOK_TARGET="$(
+    arm-none-eabi-nm "${STUB_ELF}" |
+      awk '$3 == "patch_custom_about_page_tail_hook" { print "0x" $1; found=1 } END { if (!found) exit 1 }'
+  )"
 
-CUSTOM_PAGE_SEED_HOOK_TARGET="$(
-  arm-none-eabi-nm "${STUB_ELF}" |
-    awk '$3 == "patch_custom_about_page_seed_hook" { print "0x" $1; found=1 } END { if (!found) exit 1 }'
-)"
+  CUSTOM_PAGE_SEED_HOOK_TARGET="$(
+    arm-none-eabi-nm "${STUB_ELF}" |
+      awk '$3 == "patch_custom_about_page_seed_hook" { print "0x" $1; found=1 } END { if (!found) exit 1 }'
+  )"
+fi
 
-BLOCK_BREAKER_MENU_RENDER_HOOK_TARGET="$(
-  arm-none-eabi-nm "${STUB_ELF}" |
-    awk '$3 == "patch_menu_render_entry_hook" { print "0x" $1; found=1 } END { if (!found) exit 1 }'
-)"
+BLOCK_BREAKER_MENU_RENDER_HOOK_TARGET=""
+BLOCK_BREAKER_POST_RENDER_HOOK_TARGET=""
+BLOCK_BREAKER_EVENT_SET_HOOK_TARGET=""
+if [[ "${AIRBREAK_UI_HAS_BLOCK_BREAKER}" == "1" ]]; then
+  BLOCK_BREAKER_MENU_RENDER_HOOK_TARGET="$(
+    arm-none-eabi-nm "${STUB_ELF}" |
+      awk '$3 == "patch_menu_render_entry_hook" { print "0x" $1; found=1 } END { if (!found) exit 1 }'
+  )"
 
-BLOCK_BREAKER_POST_RENDER_HOOK_TARGET="$(
-  arm-none-eabi-nm "${STUB_ELF}" |
-    awk '$3 == "patch_block_breaker_post_render_wait_hook" { print "0x" $1; found=1 } END { if (!found) exit 1 }'
-)"
+  BLOCK_BREAKER_POST_RENDER_HOOK_TARGET="$(
+    arm-none-eabi-nm "${STUB_ELF}" |
+      awk '$3 == "patch_block_breaker_post_render_wait_hook" { print "0x" $1; found=1 } END { if (!found) exit 1 }'
+  )"
 
-BLOCK_BREAKER_EVENT_SET_HOOK_TARGET="$(
-  arm-none-eabi-nm "${STUB_ELF}" |
-    awk '$3 == "patch_event_set_hook" { print "0x" $1; found=1 } END { if (!found) exit 1 }'
-)"
+  BLOCK_BREAKER_EVENT_SET_HOOK_TARGET="$(
+    arm-none-eabi-nm "${STUB_ELF}" |
+      awk '$3 == "patch_event_set_hook" { print "0x" $1; found=1 } END { if (!found) exit 1 }'
+  )"
+fi
 
-python3 "${APPLY_SCRIPT}" \
+APPLY_ARGS=(
   --stub-bin "${STUB_BIN}" \
+  --ui-screens "${AIRBREAK_UI_SCREENS}" \
   --target-build SX567-0401 \
   --patch-capacity-imm \
   --capacity-imm-off 0x61792 \
   --capacity-imm-orig-hword 0x220b \
-  --capacity-imm-new-hword 0x220e \
+  --capacity-imm-new-hword "${COMPACT_CAPACITY_HWORD}" \
   --patch-menu-hook \
   --hook-off 0x6194e \
   --hook-orig-target 0x08064e8c \
   --patch-expanded-capacity-imm \
   --expanded-capacity-imm-off 0x6153e \
   --expanded-capacity-imm-orig-hword 0x2210 \
-  --expanded-capacity-imm-new-hword 0x2213 \
+  --expanded-capacity-imm-new-hword "${EXPANDED_CAPACITY_HWORD}" \
   --patch-expanded-menu-hook \
   --expanded-hook-off 0x6177e \
   --expanded-hook-orig-target 0x08064e8c \
   --custom-about-label "${CUSTOM_ABOUT_LABEL}" \
   --custom-about-detail "${CUSTOM_ABOUT_DETAIL}" \
   --block-breaker-label "${BLOCK_BREAKER_LABEL}" \
-  --patch-block-breaker-page \
-  --block-breaker-page-seed-hook-target "${CUSTOM_PAGE_SEED_HOOK_TARGET}" \
-  --block-breaker-page-hook-target "${CUSTOM_PAGE_HOOK_TARGET}" \
-  --patch-block-breaker-menu-render-hook \
-  --block-breaker-menu-render-hook-off 0x64fbe \
-  --block-breaker-menu-render-hook-target "${BLOCK_BREAKER_MENU_RENDER_HOOK_TARGET}" \
-  --patch-block-breaker-post-render-hook \
-  --block-breaker-post-render-hook-target "${BLOCK_BREAKER_POST_RENDER_HOOK_TARGET}" \
-  --patch-block-breaker-event-set-hook \
-  --block-breaker-event-set-hook-target "${BLOCK_BREAKER_EVENT_SET_HOOK_TARGET}" \
-  --custom-page-hook-target "${CUSTOM_PAGE_HOOK_TARGET}" \
-  --custom-page-seed-hook-target "${CUSTOM_PAGE_SEED_HOOK_TARGET}" \
   --clinical-label "${CLINICAL_LABEL}" \
-  "${SOURCE_FIRMWARE}" \
-  "${PATCHED_FIRMWARE}"
+)
+
+if [[ "${AIRBREAK_UI_HAS_BLOCK_BREAKER}" == "1" ]]; then
+  APPLY_ARGS+=(
+    --patch-block-breaker-page
+    --block-breaker-page-seed-hook-target "${CUSTOM_PAGE_SEED_HOOK_TARGET}"
+    --block-breaker-page-hook-target "${CUSTOM_PAGE_HOOK_TARGET}"
+    --patch-block-breaker-menu-render-hook
+    --block-breaker-menu-render-hook-off 0x64fbe
+    --block-breaker-menu-render-hook-target "${BLOCK_BREAKER_MENU_RENDER_HOOK_TARGET}"
+    --patch-block-breaker-post-render-hook
+    --block-breaker-post-render-hook-target "${BLOCK_BREAKER_POST_RENDER_HOOK_TARGET}"
+    --patch-block-breaker-event-set-hook
+    --block-breaker-event-set-hook-target "${BLOCK_BREAKER_EVENT_SET_HOOK_TARGET}"
+  )
+else
+  APPLY_ARGS+=(
+    --no-patch-block-breaker-labels
+    --no-patch-block-breaker-dynamic-text
+    --no-patch-block-breaker-page
+    --no-patch-block-breaker-menu-render-hook
+    --no-patch-block-breaker-post-render-hook
+    --no-patch-block-breaker-event-set-hook
+  )
+fi
+
+if [[ "${AIRBREAK_UI_HAS_CUSTOM_ABOUT}" == "1" ]]; then
+  APPLY_ARGS+=(
+    --patch-custom-about-page
+    --custom-page-hook-target "${CUSTOM_PAGE_HOOK_TARGET}"
+    --custom-page-seed-hook-target "${CUSTOM_PAGE_SEED_HOOK_TARGET}"
+  )
+else
+  APPLY_ARGS+=(
+    --no-patch-custom-about-label
+    --no-patch-custom-about-detail
+    --no-patch-custom-about-page
+  )
+fi
+
+if [[ "${AIRBREAK_UI_HAS_CLINICAL_MODE}" != "1" ]]; then
+  APPLY_ARGS+=(--no-patch-clinical-label)
+fi
+
+APPLY_ARGS+=("${SOURCE_FIRMWARE}" "${PATCHED_FIRMWARE}")
+
+python3 "${APPLY_SCRIPT}" "${APPLY_ARGS[@]}"
 
 if [[ "${RUN_EMULATOR}" != "1" ]]; then
   echo "station_pipeline=pass stage=patch firmware=${PATCHED_FIRMWARE} result=pass"

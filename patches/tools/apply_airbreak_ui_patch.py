@@ -4,10 +4,9 @@ Static patch helper for AirBreak Station firmware UI experimentation.
 
 Current behavior:
 1) Apply startup cmp patch at 0xF0 by default (can be skipped for debugging).
-2) Hook the rendered My Options append paths and add AirBreak-owned Block Breaker,
-   Custom About, and Clinical Mode rows.
-3) Repoint page index 14 into an AirBreak-owned custom page host.
-4) Inject an externally built code-cave payload and custom AirBreak/Clinical strings.
+2) Hook the rendered My Options append paths and add rows from --ui-screens.
+3) Repoint required AirBreak page hosts from the enabled screen model.
+4) Inject an externally built code-cave payload and enabled-screen strings.
 """
 
 from __future__ import annotations
@@ -89,6 +88,9 @@ SUPPORTED_BUILD_IDS = {
     "SX567-0401": b"SX567-0401",
 }
 
+KNOWN_UI_SCREENS = ("block_breaker", "custom_about", "clinical_mode")
+DEFAULT_UI_SCREENS = ("block_breaker", "custom_about", "clinical_mode")
+
 # Legacy built-in code-cave stub @ 0x080FF000.
 # Current station pipeline uses an external stub; this remains only for manual
 # experiments against older append-hook sites.
@@ -132,6 +134,27 @@ def assert_bytes(buf: bytes, off: int, expected: bytes, name: str) -> None:
 
 def align_up(val: int, align: int) -> int:
     return (val + align - 1) & ~(align - 1)
+
+
+def parse_ui_screens(raw: str) -> tuple[str, ...]:
+    screens = tuple(item.strip() for item in raw.split(",") if item.strip())
+    if not screens:
+        raise RuntimeError("--ui-screens must contain at least one AirBreak UI screen")
+    unknown = [item for item in screens if item not in KNOWN_UI_SCREENS]
+    if unknown:
+        raise RuntimeError(
+            f"unknown UI screen(s): {', '.join(unknown)} "
+            f"(known: {', '.join(KNOWN_UI_SCREENS)})"
+        )
+    if len(set(screens)) != len(screens):
+        raise RuntimeError(f"duplicate UI screen in --ui-screens: {raw}")
+    return screens
+
+
+def encode_movs_imm_hword(imm: int) -> int:
+    if imm < 0 or imm > 0xFF:
+        raise RuntimeError(f"Thumb movs immediate out of range: {imm}")
+    return 0x2200 | imm
 
 
 def encode_thumb_bl(src_addr: int, dst_addr: int) -> bytes:
@@ -289,14 +312,11 @@ def append_custom_texts(
     block_left_text: str,
     block_right_text: str,
     block_fire_text: str,
+    include_block_breaker: bool,
 ) -> tuple[bytes, int, int, int, int, int, int, int]:
     label_ascii = encode_ascii_field(label_text, "--custom-about-label") + b"\x00"
     detail_ascii = encode_ascii_field(detail_text, "--custom-about-detail") + b"\x00"
     clinical_ascii = encode_ascii_field(clinical_text, "--clinical-label") + b"\x00"
-    block_breaker_ascii = encode_ascii_field(block_breaker_text, "--block-breaker-label") + b"\x00"
-    block_left_ascii = encode_ascii_field(block_left_text, "--block-breaker-left-label") + b"\x00"
-    block_right_ascii = encode_ascii_field(block_right_text, "--block-breaker-right-label") + b"\x00"
-    block_fire_ascii = encode_ascii_field(block_fire_text, "--block-breaker-fire-label") + b"\x00"
 
     blob = bytearray(stub_blob)
     blob.extend(b"\x00" * (align_up(len(blob), 4) - len(blob)))
@@ -309,18 +329,27 @@ def append_custom_texts(
     clinical_off = len(blob)
     blob.extend(clinical_ascii)
     blob.extend(b"\x00" * (align_up(len(blob), 4) - len(blob)))
-    block_breaker_off = len(blob)
-    blob.extend(block_breaker_ascii)
-    blob.extend(b"\x00" * (align_up(len(blob), 4) - len(blob)))
-    block_left_off = len(blob)
-    blob.extend(block_left_ascii)
-    blob.extend(b"\x00" * (align_up(len(blob), 4) - len(blob)))
-    block_right_off = len(blob)
-    blob.extend(block_right_ascii)
-    blob.extend(b"\x00" * (align_up(len(blob), 4) - len(blob)))
-    block_fire_off = len(blob)
-    blob.extend(block_fire_ascii)
-    blob.extend(b"\x00" * (align_up(len(blob), 4) - len(blob)))
+    block_breaker_off = 0
+    block_left_off = 0
+    block_right_off = 0
+    block_fire_off = 0
+    if include_block_breaker:
+        block_breaker_ascii = encode_ascii_field(block_breaker_text, "--block-breaker-label") + b"\x00"
+        block_left_ascii = encode_ascii_field(block_left_text, "--block-breaker-left-label") + b"\x00"
+        block_right_ascii = encode_ascii_field(block_right_text, "--block-breaker-right-label") + b"\x00"
+        block_fire_ascii = encode_ascii_field(block_fire_text, "--block-breaker-fire-label") + b"\x00"
+        block_breaker_off = len(blob)
+        blob.extend(block_breaker_ascii)
+        blob.extend(b"\x00" * (align_up(len(blob), 4) - len(blob)))
+        block_left_off = len(blob)
+        blob.extend(block_left_ascii)
+        blob.extend(b"\x00" * (align_up(len(blob), 4) - len(blob)))
+        block_right_off = len(blob)
+        blob.extend(block_right_ascii)
+        blob.extend(b"\x00" * (align_up(len(blob), 4) - len(blob)))
+        block_fire_off = len(blob)
+        blob.extend(block_fire_ascii)
+        blob.extend(b"\x00" * (align_up(len(blob), 4) - len(blob)))
 
     if len(blob) > MAX_CODE_CAVE_LEN:
         raise RuntimeError(
@@ -397,6 +426,23 @@ def main() -> None:
         help="firmware build guard (default: SX567-0401)",
     )
     ap.add_argument(
+        "--ui-screens",
+        default=",".join(DEFAULT_UI_SCREENS),
+        help=(
+            "comma-separated AirBreak UI screen model. Known screens: "
+            + ", ".join(KNOWN_UI_SCREENS)
+            + " (default: "
+            + ",".join(DEFAULT_UI_SCREENS)
+            + ")"
+        ),
+    )
+    ap.add_argument(
+        "--derive-ui-capacity",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="derive My Options capacity immediates from --ui-screens (default: enabled)",
+    )
+    ap.add_argument(
         "--skip-crc-fix",
         action="store_true",
         help="do not repair firmware CRC fields after patch (debug only; usually unbootable)",
@@ -449,7 +495,7 @@ def main() -> None:
         "--capacity-imm-new-hword",
         type=lambda x: int(x, 0),
         default=0x220E,
-        help="replacement Thumb halfword at capacity site (default: 0x220e, movs r2,#14)",
+        help="replacement Thumb halfword at capacity site when --no-derive-ui-capacity is used",
     )
     ap.add_argument(
         "--patch-expanded-menu-hook",
@@ -497,7 +543,7 @@ def main() -> None:
         "--expanded-capacity-imm-new-hword",
         type=lambda x: int(x, 0),
         default=0x2213,
-        help="replacement Plus-expanded Thumb halfword (default: 0x2213, movs r2,#19)",
+        help="replacement Plus-expanded Thumb halfword when --no-derive-ui-capacity is used",
     )
     ap.add_argument(
         "--hello-text",
@@ -711,6 +757,30 @@ def main() -> None:
         ),
     )
     args = ap.parse_args()
+    ui_screens = parse_ui_screens(args.ui_screens)
+    ui_screen_set = set(ui_screens)
+    block_breaker_enabled = "block_breaker" in ui_screen_set
+    custom_about_enabled = "custom_about" in ui_screen_set
+    clinical_mode_enabled = "clinical_mode" in ui_screen_set
+    ui_row_count = len(ui_screens)
+
+    if args.derive_ui_capacity:
+        args.capacity_imm_new_hword = encode_movs_imm_hword(11 + ui_row_count)
+        args.expanded_capacity_imm_new_hword = encode_movs_imm_hword(16 + ui_row_count)
+
+    if not block_breaker_enabled:
+        args.patch_block_breaker_labels = False
+        args.patch_block_breaker_dynamic_text = False
+        args.patch_block_breaker_page = False
+        args.patch_block_breaker_menu_render_hook = False
+        args.patch_block_breaker_post_render_hook = False
+        args.patch_block_breaker_event_set_hook = False
+    if not custom_about_enabled:
+        args.patch_custom_about_label = False
+        args.patch_custom_about_detail = False
+        args.patch_custom_about_page = False
+    if not clinical_mode_enabled:
+        args.patch_clinical_label = False
 
     src = args.input_bin.read_bytes()
     fw = bytearray(src)
@@ -828,6 +898,7 @@ def main() -> None:
     custom_label_patch_applied = False
     custom_detail_patch_applied = False
     clinical_label_patch_applied = False
+    airbreak_page_text_patch_applied = False
     block_breaker_label_patch_applied = False
     block_breaker_dynamic_text_patch_applied = False
     block_breaker_page_patch_applied = False
@@ -882,6 +953,7 @@ def main() -> None:
                 args.block_breaker_left_label,
                 args.block_breaker_right_label,
                 args.block_breaker_fire_label,
+                block_breaker_enabled,
             )
             custom_label_va = FLASH_BASE + OFF_CODE_CAVE + custom_label_off
             custom_detail_va = FLASH_BASE + OFF_CODE_CAVE + custom_detail_off
@@ -958,7 +1030,7 @@ def main() -> None:
             )
             block_breaker_label_patch_applied = True
 
-        if args.patch_block_breaker_dynamic_text:
+        if args.patch_custom_about_page or args.patch_block_breaker_page:
             patch_pointer_slot(
                 fw,
                 OFF_CUSTOM_PAGE_TITLE_PTR,
@@ -971,8 +1043,11 @@ def main() -> None:
                 OFF_BLOCK_BREAKER_STATUS_PTR,
                 ADDR_ORIG_BLANK_TEXT,
                 ADDR_BLOCK_BREAKER_STATUS_TEXT,
-                "Block Breaker status text",
+                "AirBreak page body text",
             )
+            airbreak_page_text_patch_applied = True
+
+        if args.patch_block_breaker_dynamic_text:
             patch_pointer_slot(
                 fw,
                 OFF_BLOCK_BREAKER_ROW0_PTR,
@@ -1292,6 +1367,7 @@ def main() -> None:
     print("Patched:", args.output_bin)
     print("  mode               :", "append-new-item")
     print("  build guard        :", f"target={args.target_build}, detected={detected_build}")
+    print("  ui screens         :", ",".join(ui_screens) if ui_screens else "(none)")
     print("  startup-check patch:", "enabled" if startup_patch_applied else "skipped (--skip-startup-check)")
     print("  capacity imm patch :", "enabled" if capacity_patch_applied else "disabled")
     if capacity_patch_applied:
@@ -1344,14 +1420,22 @@ def main() -> None:
                 f"fire@0x{OFF_BLOCK_BREAKER_FIRE_LABEL_PTR:08X}->0x{block_breaker_fire_label_va:08X}",
             )
         print(
+            "  airbreak page text :",
+            "enabled" if airbreak_page_text_patch_applied else "disabled",
+        )
+        if airbreak_page_text_patch_applied:
+            print(
+                "  airbreak text SRAM :",
+                f"title=0x{ADDR_CUSTOM_PAGE_TITLE_TEXT:08X}",
+                f"body=0x{ADDR_BLOCK_BREAKER_STATUS_TEXT:08X}",
+            )
+        print(
             "  block dynamic text :",
             "enabled" if block_breaker_dynamic_text_patch_applied else "disabled",
         )
         if block_breaker_dynamic_text_patch_applied:
             print(
                 "  block text SRAM    :",
-                f"title=0x{ADDR_CUSTOM_PAGE_TITLE_TEXT:08X}",
-                f"status=0x{ADDR_BLOCK_BREAKER_STATUS_TEXT:08X}",
                 f"rows=0x{ADDR_BLOCK_BREAKER_ROW0_TEXT:08X},0x{ADDR_BLOCK_BREAKER_ROW1_TEXT:08X},"
                 f"0x{ADDR_BLOCK_BREAKER_ROW2_TEXT:08X}",
             )

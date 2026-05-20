@@ -66,14 +66,29 @@ AIRBREAK_CLINICAL_LABEL="Clinical Mode" \
 AIRBREAK_EMULATE=0 ./scripts/run-station-pipeline.sh
 ```
 
+AirBreak UI screens are selected as a model, not by editing individual hook sites. The default model is:
+
+```bash
+AIRBREAK_UI_SCREENS=block_breaker,custom_about,clinical_mode
+```
+
+To remove Block Breaker from the firmware patch:
+
+```bash
+AIRBREAK_ENABLE_BLOCK_BREAKER=0 AIRBREAK_EMULATE=0 ./scripts/run-station-pipeline.sh
+```
+
+That builds a smaller payload, derives My Options capacity for two AirBreak rows, and does not patch the Block Breaker page,
+LCD render takeover, event gate, post-render tick hook, or Block Breaker text slots.
+
 ## Current Patch
 
-The active patch hooks the rendered My Options pages used by both `Essentials=On` and the `Essentials=Plus` expanded view, then appends three AirBreak rows:
+The active patch hooks the rendered My Options pages used by both `Essentials=On` and the `Essentials=Plus` expanded view, then appends the rows declared by the AirBreak UI screen model:
 
 - startup check patch: `0x000000F0`, `8442 -> c046`
-- compact `Essentials=On` My Options capacity patch: `0x08061792`, `movs r2,#11 -> movs r2,#14`
+- compact `Essentials=On` My Options capacity patch: `0x08061792`, `movs r2,#11 -> movs r2,#(11 + enabled AirBreak rows)`
 - compact `Essentials=On` My Options final append hook: `0x0806194E`, original target `0x08064E8C`, new target `0x080FF000`
-- rendered `Essentials=Plus` My Options capacity patch: `0x0806153E`, `movs r2,#16 -> movs r2,#19`
+- rendered `Essentials=Plus` My Options capacity patch: `0x0806153E`, `movs r2,#16 -> movs r2,#(16 + enabled AirBreak rows)`
 - rendered `Essentials=Plus` My Options final append hook: `0x0806177E`, original target `0x08064E8C`, new target `0x080FF000`
 - block breaker row: blank-mapped label id `0xE7` with its English pointer patched to the code-cave `AIRBREAK_BLOCK_BREAKER_LABEL` string
 - custom label row: blank-mapped label id `0xE2` with its English pointer patched to the code-cave `AIRBREAK_CUSTOM_ABOUT_LABEL` string
@@ -84,14 +99,16 @@ The active patch hooks the rendered My Options pages used by both `Essentials=On
 - CRC: all three firmware CRC segments are recomputed and verified
 
 The payload preserves the original lower My Options append, constructs stock navigation rows, and appends them
-while there is spare capacity. Block Breaker is placed above Custom About, Custom About is placed directly above
-Clinical Mode, and Clinical Mode is the last item in the visible default and `Essentials=Plus` expanded My Options lists.
+while there is spare capacity. The row order comes from the AirBreak UI model. In the default model, Block Breaker is placed
+above Custom About, Custom About is placed directly above Clinical Mode, and Clinical Mode is the last item in the visible
+default and `Essentials=Plus` expanded My Options lists.
 Custom About does not reuse the stock
 About label, route to the stock About page, or rewrite any About-page text. It routes to the AirBreak-owned
 custom page and shows `This is Custom About` by default. Block Breaker routes to the AirBreak-owned page host,
 sets the title to `Block Breaker`, and then draws an Atari-style full-frame game as the owned LCD surface. The active game page has no stock Back row or control rows, and the event setter gate blocks stock page, row, and selected-row writes while the game is active, so encoder rotation/clicks cannot drive the hidden stock UI behind the game. Paddle input comes from the firmware rotary provider or raw PF10/PF11 encoder phase reads, and consumed rotary state is cleared before the stock UI can reuse it. Fire comes from the PG11 encoder-button edge, the ball advances on the post-render tick without requiring another button press, and PG7 Home first restores the stored My Options origin, clears the game SRAM state, releases the rotary provider back to the stock UI, and then lets the stock Home handler complete the exit. The ball uses a finer 16x16 logical grid, while the bricks use an independent 18-bit `6x3` SRAM map at `0x2001FCC0` so one collision clears one brick. Each AirBreak row
 stores its My Options origin in the row action object, the entry action copies that origin and the current selected row into
-an AirBreak-owned SRAM scratch word, and the custom Back action reads that scratch state before returning when the page is used outside the active game. The Clinical Mode row routes to `index=6,row=0x37`,
+an AirBreak-owned SRAM scratch word, and the owning screen's Back action reads that scratch state before returning. Custom
+About and Block Breaker no longer share a Back action; Block Breaker owns its cleanup and input release path. The Clinical Mode row routes to `index=6,row=0x37`,
 which the emulator verified lands on the clinical Settings/Therapy page. Any crash or invalid state in the
 resulting firmware should also be observable through the local emulator path.
 

@@ -10,6 +10,7 @@ set -euo pipefail
 SRC=""
 LD_SCRIPT=""
 OUT_DIR=""
+DEFINES=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -23,6 +24,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --out-dir)
       OUT_DIR="$2"
+      shift 2
+      ;;
+    --define)
+      DEFINES+=("-D$2")
       shift 2
       ;;
     *)
@@ -64,6 +69,7 @@ arm-none-eabi-gcc \
   -fdata-sections \
   -ffunction-sections \
   -Os \
+  "${DEFINES[@]}" \
   -c "$SRC" -o "$OBJ"
 
 arm-none-eabi-ld \
