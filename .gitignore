@@ -1,5 +1,5 @@
 # Private firmware and generated firmware images.
-firmware/
+/firmware/
 firmware/*.bin
 firmware/*.elf
 firmware/*.hex
