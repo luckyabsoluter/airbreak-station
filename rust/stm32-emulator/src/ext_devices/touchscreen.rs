@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::rc::Rc;
-use std::{collections::VecDeque, cell::RefCell};
 use std::convert::TryFrom;
+use std::rc::Rc;
+use std::{cell::RefCell, collections::VecDeque};
 
 use anyhow::Result;
 use serde::Deserialize;
@@ -35,7 +35,11 @@ pub struct Touchscreen {
 }
 
 impl Touchscreen {
-    pub fn new(config: TouchscreenConfig, gpio: &mut GpioPorts, framebuffers: &Framebuffers) -> Result<Self> {
+    pub fn new(
+        config: TouchscreenConfig,
+        gpio: &mut GpioPorts,
+        framebuffers: &Framebuffers,
+    ) -> Result<Self> {
         let framebuffer = framebuffers.get(&config.framebuffer)?;
 
         if let Some(ref touch_detected_pin) = config.touch_detected_pin {
@@ -88,8 +92,8 @@ impl ExtDevice<(), u8> for Touchscreen {
                 };
 
                 let v = match (op, self.config.flip_x, self.config.flip_y) {
-                    (Operation::MeasureX, Some(true), _) => (MAX - v),
-                    (Operation::MeasureY, _, Some(true)) => (MAX - v),
+                    (Operation::MeasureX, Some(true), _) => MAX - v,
+                    (Operation::MeasureY, _, Some(true)) => MAX - v,
                     _ => v,
                 };
 
@@ -108,7 +112,6 @@ impl ExtDevice<(), u8> for Touchscreen {
                 // all zeros
                 self.reply = None;
             }
-
         }
     }
 }
@@ -166,7 +169,12 @@ impl std::convert::TryFrom<u8> for Command {
             let power = value & 0b11;
             let power = Power::try_from(power).unwrap();
 
-            Ok(Self { op, mode, differential, power })
+            Ok(Self {
+                op,
+                mode,
+                differential,
+                power,
+            })
         } else {
             Err(())
         }

@@ -4,10 +4,10 @@ pub mod image;
 pub mod sdl;
 pub mod sdl_engine;
 
-use std::{rc::Rc, cell::RefCell};
-use serde::Deserialize;
 use self::{image::Image, sdl::Sdl};
 use anyhow::Result;
+use serde::Deserialize;
+use std::{cell::RefCell, rc::Rc};
 
 #[derive(Debug, Deserialize)]
 pub struct FramebufferConfig {
@@ -18,6 +18,7 @@ pub struct FramebufferConfig {
     pub image: Option<ImageBackendConfig>,
     pub sdl: Option<bool>,
     pub downscale: Option<u32>,
+    pub control_panel: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -36,7 +37,9 @@ pub trait Framebuffer<Color> {
     fn get_pixels(&mut self) -> &mut [Color];
 
     /// for touch screens
-    fn get_touch_position(&self) -> Option<(u16, u16)> { None }
+    fn get_touch_position(&self) -> Option<(u16, u16)> {
+        None
+    }
 }
 
 pub struct Framebuffers {
@@ -62,9 +65,17 @@ impl Framebuffers {
     }
 
     pub fn get<C>(&self, name: &str) -> Result<Rc<RefCell<dyn Framebuffer<C>>>> {
-        let images = self.images.iter().map(|fb| fb.clone() as Rc<RefCell<dyn Framebuffer<C>>>);
-        let sdls = self.sdls.iter().map(|fb| fb.clone() as Rc<RefCell<dyn Framebuffer<C>>>);
-        let fb = images.chain(sdls).find(|fb| fb.borrow().get_config().name == name);
+        let images = self
+            .images
+            .iter()
+            .map(|fb| fb.clone() as Rc<RefCell<dyn Framebuffer<C>>>);
+        let sdls = self
+            .sdls
+            .iter()
+            .map(|fb| fb.clone() as Rc<RefCell<dyn Framebuffer<C>>>);
+        let fb = images
+            .chain(sdls)
+            .find(|fb| fb.borrow().get_config().name == name);
         fb.ok_or(anyhow::anyhow!("Cannot find framebuffer {}", name))
     }
 }

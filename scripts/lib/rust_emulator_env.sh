@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
 
-# Rust STM32 emulator bootstrap for the GUI launcher. This intentionally keeps
-# the Rust path behind scripts/run-gui.sh instead of adding a competing entrypoint.
+# Rust STM32 emulator bootstrap for the GUI launcher. The emulator source is
+# vendored in this repository so station runs do not clone or patch an external
+# checkout at runtime.
 
 if [[ -z "${ROOT_DIR:-}" ]]; then
   ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fi
 
-STM32_EMULATOR_REPO_URL="${STM32_EMULATOR_REPO_URL:-https://github.com/nviennot/stm32-emulator.git}"
-STM32_EMULATOR_REV="${STM32_EMULATOR_REV:-6622f2ce5047910a401ca958b7f6e91a0000f1b6}"
-STM32_EMULATOR_DIR="${STM32_EMULATOR_DIR:-${ROOT_DIR}/.work/stm32-emulator-upstream}"
-STM32_EMULATOR_PATCH_DIR="${STM32_EMULATOR_PATCH_DIR:-${ROOT_DIR}/rust/stm32-emulator-patches}"
+STM32_EMULATOR_DIR="${STM32_EMULATOR_DIR:-${ROOT_DIR}/rust/stm32-emulator}"
 AIRBREAK_RUST_SVD_URL="${AIRBREAK_RUST_SVD_URL:-https://dl.antmicro.com/projects/renode/svd/STM32F40x.svd.gz}"
 AIRBREAK_RUST_SVD_SHA256="${AIRBREAK_RUST_SVD_SHA256:-d71b3e11c870ec83346eb994e98a57c5eacdf0082d2949ed495d7a3828bf41ec}"
 AIRBREAK_RUST_SVD_CACHE="${AIRBREAK_RUST_SVD_CACHE:-${ROOT_DIR}/.work/svd-cache/STM32F40x.svd.gz}"
@@ -48,7 +46,7 @@ AIRBREAK_RUST_REJECT_LOGO="${AIRBREAK_RUST_REJECT_LOGO:-1}"
 AIRBREAK_RUST_MIN_NONZERO="${AIRBREAK_RUST_MIN_NONZERO:-512}"
 AIRBREAK_RUST_MIN_BBOX_AREA="${AIRBREAK_RUST_MIN_BBOX_AREA:-2048}"
 
-export STM32_EMULATOR_REPO_URL STM32_EMULATOR_REV STM32_EMULATOR_DIR STM32_EMULATOR_PATCH_DIR
+export STM32_EMULATOR_DIR
 export AIRBREAK_RUST_SVD_URL AIRBREAK_RUST_SVD_SHA256 AIRBREAK_RUST_SVD_CACHE
 export AIRBREAK_RUST_ISOLATION AIRBREAK_RUST_CLEAN_RUN_ROOT AIRBREAK_RUST_RUN_ID AIRBREAK_RUST_RUN_ROOT
 export AIRBREAK_RUST_CONFIG AIRBREAK_RUST_SVD_SOURCE AIRBREAK_RUST_SVD AIRBREAK_RUST_FIRMWARE AIRBREAK_RUST_FRAMEBUFFER_PNG AIRBREAK_RUST_CONFIG_TEMPLATE
@@ -122,54 +120,12 @@ airbreak_rust_require_tool() {
   fi
 }
 
-airbreak_rust_ensure_upstream() {
-  airbreak_rust_require_tool git "Install git or set STM32_EMULATOR_DIR to an existing checkout." || return $?
-
-  if [[ ! -d "${STM32_EMULATOR_DIR}/.git" ]]; then
-    if [[ -e "${STM32_EMULATOR_DIR}" ]]; then
-      echo "[run-gui] rust backend upstream path exists but is not a git checkout: ${STM32_EMULATOR_DIR}" >&2
-      return 1
-    fi
-    mkdir -p "${STM32_EMULATOR_DIR}"
-    git -C "${STM32_EMULATOR_DIR}" init
-    git -C "${STM32_EMULATOR_DIR}" remote add origin "${STM32_EMULATOR_REPO_URL}"
-    if [[ -n "${STM32_EMULATOR_REV}" ]]; then
-      git -C "${STM32_EMULATOR_DIR}" fetch --depth 1 origin "${STM32_EMULATOR_REV}"
-      git -C "${STM32_EMULATOR_DIR}" checkout --detach FETCH_HEAD
-    else
-      git -C "${STM32_EMULATOR_DIR}" fetch --depth 1 origin HEAD
-      git -C "${STM32_EMULATOR_DIR}" checkout --detach FETCH_HEAD
-    fi
+airbreak_rust_ensure_emulator_source() {
+  if [[ ! -f "${STM32_EMULATOR_DIR}/Cargo.toml" || ! -f "${STM32_EMULATOR_DIR}/src/main.rs" ]]; then
+    echo "[run-gui] rust backend source not found: ${STM32_EMULATOR_DIR}" >&2
+    echo "[run-gui] expected vendored source at rust/stm32-emulator or set STM32_EMULATOR_DIR to a source tree." >&2
+    return 1
   fi
-
-  if [[ -n "${STM32_EMULATOR_REV}" ]]; then
-    local current=""
-    current="$(git -C "${STM32_EMULATOR_DIR}" rev-parse HEAD)"
-    if [[ "${current}" != "${STM32_EMULATOR_REV}" ]]; then
-      git -C "${STM32_EMULATOR_DIR}" fetch --depth 1 origin "${STM32_EMULATOR_REV}"
-      git -C "${STM32_EMULATOR_DIR}" checkout --detach "${STM32_EMULATOR_REV}"
-    fi
-  fi
-
-  airbreak_rust_apply_patches || return $?
-}
-
-airbreak_rust_apply_patches() {
-  if [[ ! -d "${STM32_EMULATOR_PATCH_DIR}" ]]; then
-    return 0
-  fi
-
-  local patch
-  while IFS= read -r -d '' patch; do
-    if git -C "${STM32_EMULATOR_DIR}" apply --check --reverse "${patch}" >/dev/null 2>&1; then
-      continue
-    fi
-    if ! git -C "${STM32_EMULATOR_DIR}" apply --check "${patch}" >/dev/null 2>&1; then
-      echo "[run-gui] rust backend patch does not apply cleanly: ${patch}" >&2
-      return 1
-    fi
-    git -C "${STM32_EMULATOR_DIR}" apply "${patch}"
-  done < <(find "${STM32_EMULATOR_PATCH_DIR}" -maxdepth 1 -type f -name '*.patch' -print0 | sort -z)
 }
 
 airbreak_rust_svd_sha256() {
@@ -479,7 +435,7 @@ PY
 run_airbreak_rust_gui() {
   airbreak_rust_require_tool cargo "Install the Rust toolchain first." || return $?
   airbreak_rust_require_tool cmake "stm32-emulator builds bundled Unicorn and SDL2 through CMake; install cmake or provide it on PATH." || return $?
-  airbreak_rust_ensure_upstream || return $?
+  airbreak_rust_ensure_emulator_source || return $?
   airbreak_rust_generate_config || return $?
 
   if airbreak_rust_is_windows_mount_path "${AIRBREAK_RUST_RUN_ROOT}"; then
@@ -606,8 +562,8 @@ run_airbreak_rust_gui() {
   fi
   args+=(--interrupt-period "${AIRBREAK_RUST_INTERRUPT_PERIOD}")
 
-  printf "[run-gui] rust backend start upstream=%s rev=%s config=%s framebuffer=%s\n" \
-    "${STM32_EMULATOR_DIR}" "${STM32_EMULATOR_REV:-unversioned}" "${AIRBREAK_RUST_CONFIG}" "${AIRBREAK_RUST_FRAMEBUFFER_PNG}" >&2
+  printf "[run-gui] rust backend start source=%s config=%s framebuffer=%s\n" \
+    "${STM32_EMULATOR_DIR}" "${AIRBREAK_RUST_CONFIG}" "${AIRBREAK_RUST_FRAMEBUFFER_PNG}" >&2
 
   local status=0
   set +e

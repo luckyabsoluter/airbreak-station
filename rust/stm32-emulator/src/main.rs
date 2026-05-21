@@ -2,23 +2,22 @@
 
 mod config;
 mod emulator;
-mod util;
-mod peripherals;
 mod ext_devices;
-mod system;
 mod framebuffers;
+mod peripherals;
+mod system;
+mod util;
 
-use std::io::prelude::*;
-use std::sync::atomic::Ordering::Relaxed;
+use anyhow::{Context, Result};
 use clap::Parser;
-use anyhow::{Result, Context};
 use env_logger::fmt::WriteStyle;
 use log::LevelFilter;
+use std::io::prelude::*;
+use std::sync::atomic::Ordering::Relaxed;
 
 use config::Config;
 use emulator::run_emulator;
 use util::read_file_str;
-
 
 #[macro_use]
 extern crate log;
@@ -46,17 +45,57 @@ pub struct Args {
     busy_loop_stop: bool,
 
     /// Colorize output
-    #[clap(short, long, arg_enum, default_value="auto")]
+    #[clap(short, long, arg_enum, default_value = "auto")]
     color: Color,
 
     /// Run pending interrupts every N instructions
     /// Shorter is more correct, but is slower.
-    #[clap(short, long, default_value="1")]
+    #[clap(short, long, default_value = "1")]
     interrupt_period: u32,
 
     /// Dump stack at the end. Parameter is the number of words to print
     #[clap(short, long)]
     dump_stack: Option<usize>,
+
+    /// Dump a 32-bit memory word at the end. Can be repeated.
+    #[clap(long, parse(try_from_str=clap_num::maybe_hex))]
+    dump_mem32: Vec<u32>,
+
+    /// Count executions at a code address. Can be repeated.
+    #[clap(long, parse(try_from_str=clap_num::maybe_hex))]
+    count_addr: Vec<u32>,
+
+    /// Log register samples when execution reaches a code address. Can be repeated.
+    #[clap(long, parse(try_from_str=clap_num::maybe_hex))]
+    trace_addr: Vec<u32>,
+
+    /// Maximum register samples to log per traced code address.
+    #[clap(long, default_value = "32")]
+    trace_addr_limit: u64,
+
+    /// Log writes that overlap this RAM address. Can be repeated.
+    #[clap(long, parse(try_from_str=clap_num::maybe_hex))]
+    watch_write: Vec<u32>,
+
+    /// Maximum write samples to log per watched RAM address.
+    #[clap(long, default_value = "64")]
+    watch_write_limit: u64,
+
+    /// Comma-separated scripted front-panel actions: encoder,power,home,cw,ccw.
+    #[clap(long)]
+    front_panel_sequence: Option<String>,
+
+    /// Instruction count at which to inject the scripted front-panel sequence.
+    #[clap(long, default_value = "500000000")]
+    front_panel_at: u64,
+
+    /// Instructions to run after the scripted front-panel sequence before the after snapshot.
+    #[clap(long, default_value = "50000000")]
+    front_panel_settle: u64,
+
+    /// Directory for before/after PNG snapshots around the scripted front-panel sequence.
+    #[clap(long)]
+    front_panel_snapshot_dir: Option<String>,
 }
 
 #[derive(clap::ArgEnum, Clone, Copy, Debug)]
@@ -107,10 +146,22 @@ fn init_logging(args: &Args) {
             let mut style = buf.style();
             let level = match record.level() {
                 log::Level::Error => style.set_color(Color::Red).set_intense(true).value("ERROR"),
-                log::Level::Warn =>  style.set_color(Color::Yellow).set_intense(true).value("WARN "),
-                log::Level::Info =>  style.set_color(Color::Green).set_intense(true).value("INFO "),
-                log::Level::Debug => style.set_color(Color::Cyan).set_intense(true).value("DEBUG"),
-                log::Level::Trace => style.set_color(Color::Blue).set_intense(true).value("TRACE"),
+                log::Level::Warn => style
+                    .set_color(Color::Yellow)
+                    .set_intense(true)
+                    .value("WARN "),
+                log::Level::Info => style
+                    .set_color(Color::Green)
+                    .set_intense(true)
+                    .value("INFO "),
+                log::Level::Debug => style
+                    .set_color(Color::Cyan)
+                    .set_intense(true)
+                    .value("DEBUG"),
+                log::Level::Trace => style
+                    .set_color(Color::Blue)
+                    .set_intense(true)
+                    .value("TRACE"),
             };
 
             let mut style = buf.style();

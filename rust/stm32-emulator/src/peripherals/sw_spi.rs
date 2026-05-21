@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use std::cell::RefCell;
 use std::rc::Rc;
-use std::{cell::RefCell};
 
 use serde::Deserialize;
 
 use crate::ext_devices::{ExtDevice, ExtDevices};
-use crate::peripherals::gpio::{Pin, GpioPorts};
+use crate::peripherals::gpio::{GpioPorts, Pin};
 use crate::system::System;
 
 #[derive(Debug, Deserialize, Default)]
@@ -44,25 +44,31 @@ impl SoftwareSpi {
         let mosi = Pin::from_str(&config.mosi);
 
         let ext_device = ext_devices.find_serial_device(&config.name);
-        let name = ext_device.as_ref()
+        let name = ext_device
+            .as_ref()
             .map(|d| d.borrow_mut().connect_peripheral(&config.name))
             .unwrap_or_else(|| config.name.to_string());
 
-        let self_ = Rc::new(RefCell::new(Self { config, name, ext_device, ..Default::default() }));
+        let self_ = Rc::new(RefCell::new(Self {
+            config,
+            name,
+            ext_device,
+            ..Default::default()
+        }));
 
         if let Some(cs) = cs {
             let s = self_.clone();
-            gpio.add_write_callback(cs, move |sys, v| { s.borrow_mut().write_cs(sys, v) });
+            gpio.add_write_callback(cs, move |sys, v| s.borrow_mut().write_cs(sys, v));
         }
 
         let s = self_.clone();
-        gpio.add_write_callback(clk, move |sys, v| { s.borrow_mut().write_clk(sys, v) });
+        gpio.add_write_callback(clk, move |sys, v| s.borrow_mut().write_clk(sys, v));
 
         let s = self_.clone();
-        gpio.add_read_callback(miso, move |sys| { s.borrow_mut().read_miso(sys) });
+        gpio.add_read_callback(miso, move |sys| s.borrow_mut().read_miso(sys));
 
         let s = self_.clone();
-        gpio.add_write_callback(mosi, move |sys, v| { s.borrow_mut().write_mosi(sys, v) });
+        gpio.add_write_callback(mosi, move |sys, v| s.borrow_mut().write_mosi(sys, v));
     }
 
     pub fn write_cs(&mut self, _sys: &System, value: bool) {
@@ -80,7 +86,9 @@ impl SoftwareSpi {
     }
 
     pub fn write_clk(&mut self, sys: &System, value: bool) {
-        if self.cs { return; }
+        if self.cs {
+            return;
+        }
 
         // clock rise
         if !self.clk && value {
@@ -103,12 +111,16 @@ impl SoftwareSpi {
     }
 
     pub fn read_miso(&mut self, _sys: &System) -> bool {
-        if self.cs { return false; }
+        if self.cs {
+            return false;
+        }
         self.miso
     }
 
     pub fn write_mosi(&mut self, _sys: &System, value: bool) {
-        if self.cs { return; }
+        if self.cs {
+            return;
+        }
         self.mosi = value;
     }
 

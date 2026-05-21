@@ -1,18 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::{convert::TryFrom, collections::VecDeque, rc::Rc, cell::RefCell};
+use std::{cell::RefCell, collections::VecDeque, convert::TryFrom, rc::Rc};
 
 use anyhow::Result;
 use serde::Deserialize;
 
-use crate::{system::System, util::{Rect, Point}, framebuffers::{Framebuffer, Framebuffers, RGB565}};
 use super::ExtDevice;
+use crate::{
+    framebuffers::{Framebuffer, Framebuffers, RGB565},
+    system::System,
+    util::{Point, Rect},
+};
 
 #[derive(Debug, Deserialize)]
 pub struct DisplayConfig {
     pub peripheral: String,
     pub cmd_addr_bit: u32,
     pub swap_bytes: Option<bool>,
+    pub bgr_to_rgb: Option<bool>,
     pub replies: Option<Vec<ReplyConfig>>,
     pub framebuffer: String,
 }
@@ -44,12 +49,18 @@ impl Display {
 
         Ok(Self {
             name: "?".to_string(), // This is filled out on connect_peripheral()
-            draw_region: Rect { left: 0, top: 0, right: width-1, bottom: height-1 },
+            draw_region: Rect {
+                left: 0,
+                top: 0,
+                right: width - 1,
+                bottom: height - 1,
+            },
             cmd: None,
             reply: Default::default(),
             drawing: false,
             current_position: Point::default(),
-            width, height,
+            width,
+            height,
             framebuffer: framebuffer.clone(),
             config,
         })
@@ -57,18 +68,23 @@ impl Display {
 
     #[inline]
     fn get_framebuffer_pixel_index(&mut self, x: u16, y: u16) -> usize {
-        let x = x.min(self.width-1) as usize;
-        let y = y.min(self.height-1) as usize;
+        let x = x.min(self.width - 1) as usize;
+        let y = y.min(self.height - 1) as usize;
         x + y * self.width as usize
     }
 
-
     fn draw_pixel(&mut self, c: u16) {
-        let c = if self.config.swap_bytes.unwrap_or_default() {
+        let mut c = if self.config.swap_bytes.unwrap_or_default() {
             c.swap_bytes()
         } else {
             c
         };
+        if self.config.bgr_to_rgb.unwrap_or_default() {
+            let red = c & 0x001F;
+            let green = c & 0x07E0;
+            let blue = c & 0xF800;
+            c = (red << 11) | green | (blue >> 11);
+        }
 
         let Point { mut x, mut y } = self.current_position;
         let i = self.get_framebuffer_pixel_index(x, y);
@@ -91,14 +107,14 @@ impl Display {
         if let Some((cmd, args)) = self.cmd.take() {
             match (Command::try_from(cmd).ok(), args.len()) {
                 (Some(cmd @ Command::SetHoriRegion), 4) => {
-                    let left  = (args[0] << 8) | args[1];
+                    let left = (args[0] << 8) | args[1];
                     let right = (args[2] << 8) | args[3];
                     self.draw_region.left = left;
                     self.draw_region.right = right;
                     debug!("{} cmd={:?} left={} right={}", self.name, cmd, left, right);
                 }
                 (Some(cmd @ Command::SetVertRegion), 4) => {
-                    let top    = (args[0] << 8) | args[1];
+                    let top = (args[0] << 8) | args[1];
                     let bottom = (args[2] << 8) | args[3];
                     self.draw_region.top = top;
                     self.draw_region.bottom = bottom;
@@ -147,12 +163,8 @@ impl ExtDevice<u32, u32> for Display {
         let mode = Mode::from_addr(self.config.cmd_addr_bit, addr);
 
         let v = match mode {
-            Mode::Cmd => {
-                0
-            }
-            Mode::Data => {
-                self.reply.pop_front().unwrap_or_default()
-            }
+            Mode::Cmd => 0,
+            Mode::Data => self.reply.pop_front().unwrap_or_default(),
         };
 
         trace!("{} READ {:?} -> {:02x}", self.name, mode, v);
@@ -161,7 +173,12 @@ impl ExtDevice<u32, u32> for Display {
 
     fn write(&mut self, _sys: &System, addr: u32, value: u32) {
         let mode = Mode::from_addr(self.config.cmd_addr_bit, addr);
-        trace!("{} WRITE {:?} value=0x{:04x}", self.name, mode, value as u16);
+        trace!(
+            "{} WRITE {:?} value=0x{:04x}",
+            self.name,
+            mode,
+            value as u16
+        );
         match mode {
             Mode::Cmd => {
                 self.finish_cmd();
@@ -185,7 +202,6 @@ enum Mode {
     Cmd,
     Data,
 }
-
 
 #[derive(Clone, Copy, Debug, num_enum::TryFromPrimitive)]
 #[repr(u8)]

@@ -21,7 +21,10 @@ pub struct UsartProbe {
 
 impl UsartProbe {
     pub fn new(config: UsartProbeConfig) -> Result<Self> {
-        Ok(Self { config, ..Self::default() })
+        Ok(Self {
+            config,
+            ..Self::default()
+        })
     }
 }
 

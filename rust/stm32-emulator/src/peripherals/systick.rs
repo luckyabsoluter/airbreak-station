@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use crate::system::System;
 use super::Peripheral;
+use crate::system::System;
 
 #[derive(Default)]
 pub struct SysTick {
@@ -24,13 +24,13 @@ impl SysTick {
     }
 
     fn set_nvic_systick_period(&self, sys: &System) {
-        let nvic_systick_period = if self.has_int_enabled() {
-            Some(self.reload)
+        let ctrl = if self.has_int_enabled() {
+            self.ctl
         } else {
-            None
+            self.ctl & !0b11
         };
 
-        sys.p.nvic.borrow_mut().systick_period = nvic_systick_period;
+        sys.p.nvic.borrow_mut().configure_systick(ctrl, self.reload);
     }
 }
 
@@ -45,9 +45,13 @@ impl Peripheral for SysTick {
             0x0004 => self.reload,
             0x0008 => {
                 self.val_toggle = !self.val_toggle;
-                if self.val_toggle { 0 } else { self.reload/2 }
+                if self.val_toggle {
+                    0
+                } else {
+                    self.reload / 2
+                }
             }
-            _ => 0
+            _ => 0,
         }
     }
 

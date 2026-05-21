@@ -3,9 +3,9 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::ext_devices::{ExtDevices, ExtDevice};
-use crate::system::System;
 use super::Peripheral;
+use crate::ext_devices::{ExtDevice, ExtDevices};
+use crate::system::System;
 
 #[derive(Default)]
 pub struct Usart {
@@ -17,10 +17,15 @@ impl Usart {
     pub fn new(name: &str, ext_devices: &ExtDevices) -> Option<Box<dyn Peripheral>> {
         if name.starts_with("USART") {
             let ext_device = ext_devices.find_serial_device(&name);
-            let name = ext_device.as_ref()
+            let name = ext_device
+                .as_ref()
                 .map(|d| d.borrow_mut().connect_peripheral(name))
                 .unwrap_or_else(|| name.to_string());
-            Some(Box::new(Self { name, ext_device, ..Default::default() }))
+            Some(Box::new(Self {
+                name,
+                ext_device,
+                ..Default::default()
+            }))
         } else {
             None
         }
@@ -41,14 +46,16 @@ impl Peripheral for Usart {
             }
             0x0004 => {
                 // DR register
-                let v = self.ext_device.as_ref().map(|d|
-                    d.borrow_mut().read(sys, ())
-                ).unwrap_or_default() as u32;
+                let v = self
+                    .ext_device
+                    .as_ref()
+                    .map(|d| d.borrow_mut().read(sys, ()))
+                    .unwrap_or_default() as u32;
 
                 trace!("{} read={:02x}", self.name, v);
                 v
             }
-            _ => 0
+            _ => 0,
         }
     }
 
@@ -56,9 +63,9 @@ impl Peripheral for Usart {
         match offset {
             0x0004 => {
                 // DR register
-                self.ext_device.as_ref().map(|d|
-                    d.borrow_mut().write(sys, (), value as u8)
-                );
+                self.ext_device
+                    .as_ref()
+                    .map(|d| d.borrow_mut().write(sys, (), value as u8));
 
                 trace!("{} write={:02x}", self.name, value as u8);
             }

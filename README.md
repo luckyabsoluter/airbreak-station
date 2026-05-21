@@ -121,6 +121,7 @@ resulting firmware should also be observable through the local emulator path.
 - `patches/tools/`: local firmware patch and payload build tools.
 - `patches/templates/`: code-cave payload source and linker script.
 - `scripts/run-station-pipeline.sh`: reverse/patch/emulate orchestration entrypoint.
-- `scripts/run-gui*.sh`: imported emulator launch and regression wrappers.
-- `scripts/lib/rust_emulator_env.sh`: Rust STM32 emulator bootstrap.
-- `rust/`: AirBreak emulator config template and upstream emulator patches.
+- `scripts/run-gui*.sh`: emulator launch and regression wrappers.
+- `scripts/lib/rust_emulator_env.sh`: Rust STM32 emulator bootstrap using the vendored source tree.
+- `rust/airbreak-f405.yaml.in`: AirBreak emulator config template.
+- `rust/stm32-emulator/`: vendored STM32 emulator source with AirBreak support applied in code.

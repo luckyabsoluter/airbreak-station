@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::{io::BufWriter, fs::File};
-use super::{FramebufferConfig, Framebuffer, RGB565};
+use super::{Framebuffer, FramebufferConfig, RGB565};
 use anyhow::Result;
+use std::{fs::File, io::BufWriter, path::Path};
 
 pub struct Image {
     pub config: FramebufferConfig,
@@ -12,12 +12,19 @@ pub struct Image {
 impl Image {
     pub fn new(config: FramebufferConfig) -> Self {
         let mut framebuffer = vec![];
-        framebuffer.resize(config.width as usize * config.height as usize, Default::default());
-        Self { config, framebuffer }
+        framebuffer.resize(
+            config.width as usize * config.height as usize,
+            Default::default(),
+        );
+        Self {
+            config,
+            framebuffer,
+        }
     }
 
     pub fn get_framebuffer_as_rgb(&self) -> Vec<u8> {
-        let mut v = Vec::with_capacity((self.config.width * self.config.height * 3).into());
+        let pixel_count = self.config.width as usize * self.config.height as usize;
+        let mut v = Vec::with_capacity(pixel_count * 3);
 
         for c in self.framebuffer.iter().cloned() {
             // RGB565
@@ -34,19 +41,23 @@ impl Image {
     }
 
     pub fn write_to_disk(&self) -> Result<()> {
-        let path = &self.config.image.as_ref().unwrap().file;
-        let file = File::create(path).unwrap();
+        let path = Path::new(&self.config.image.as_ref().unwrap().file);
+        self.write_to_path(path)
+    }
+
+    pub fn write_to_path(&self, path: &Path) -> Result<()> {
+        let file = File::create(path)?;
         let ref mut w = BufWriter::new(file);
 
         let mut encoder = png::Encoder::new(w, self.config.width.into(), self.config.height.into());
         encoder.set_color(png::ColorType::Rgb);
         encoder.set_depth(png::BitDepth::Eight);
 
-        let mut writer = encoder.write_header().unwrap();
+        let mut writer = encoder.write_header()?;
 
-        writer.write_image_data(&self.get_framebuffer_as_rgb()).unwrap();
+        writer.write_image_data(&self.get_framebuffer_as_rgb())?;
 
-        info!("Wrote framebuffer to {}", path);
+        info!("Wrote framebuffer to {}", path.display());
 
         Ok(())
     }
@@ -63,7 +74,8 @@ impl<Color> Framebuffer<Color> for Image {
         unsafe {
             std::slice::from_raw_parts_mut(
                 self.framebuffer.as_mut_ptr() as *mut Color,
-                self.framebuffer.len() * std::mem::size_of::<RGB565>() / std::mem::size_of::<Color>(),
+                self.framebuffer.len() * std::mem::size_of::<RGB565>()
+                    / std::mem::size_of::<Color>(),
             )
         }
     }

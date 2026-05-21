@@ -1,6 +1,9 @@
 STM32 Emulator
 ==============
 
+AirBreak Station vendors this emulator source under `rust/stm32-emulator`.
+Use it in place; the station pipeline does not clone another checkout at runtime.
+
 The goal is to simulate 3D printers, but any sort of stm32 microcontroller firmware should work.
 
 The emulator is configured via a configuration file, see example
@@ -42,9 +45,7 @@ working, and I was in a hurry).
 ### Try it out
 
 ```
-$ git clone https://github.com/nviennot/stm32-emulator.git
-$ cd stm32-emulator/saturn
-$ cargo run --release -- config.yaml -v
+$ cargo run --manifest-path rust/stm32-emulator/Cargo.toml --release -- rust/stm32-emulator/saturn/config.yaml -v
 ```
 
 ### The output
@@ -96,9 +97,7 @@ or IDA Pro.
 ### Try it out
 
 ```
-$ git clone https://github.com/nviennot/stm32-emulator.git
-$ cd stm32-emulator/monox
-$ cargo run --release -- config.yaml -v
+$ cargo run --manifest-path rust/stm32-emulator/Cargo.toml --release -- rust/stm32-emulator/monox/config.yaml -v
 ```
 
 ---
