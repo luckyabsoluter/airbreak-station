@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use crate::{system::System, ext_devices::ExtDevice};
 use super::Peripheral;
-use crate::{ext_devices::ExtDevice, system::System};
 
 use crate::ext_devices::ExtDevices;
 
-use std::{cell::RefCell, rc::Rc};
+use std::{rc::Rc, cell::RefCell};
 
 #[derive(Default)]
 pub struct Spi {
@@ -20,15 +20,10 @@ impl Spi {
     pub fn new(name: &str, ext_devices: &ExtDevices) -> Option<Box<dyn Peripheral>> {
         if name.starts_with("SPI") {
             let ext_device = ext_devices.find_serial_device(name);
-            let name = ext_device
-                .as_ref()
+            let name = ext_device.as_ref()
                 .map(|d| d.borrow_mut().connect_peripheral(name))
                 .unwrap_or_else(|| name.to_string());
-            Some(Box::new(Self {
-                name,
-                ext_device,
-                ..Default::default()
-            }))
+            Some(Box::new(Self { name, ext_device, ..Default::default() }))
         } else {
             None
         }
@@ -42,17 +37,15 @@ impl Spi {
 impl Peripheral for Spi {
     fn read(&mut self, _sys: &System, offset: u32) -> u32 {
         match offset {
-            0x0000 => self.cr1,
+            0x0000 => {
+                self.cr1
+            }
             0x0008 => {
                 // SR register
                 // receive buffer not empty
                 // transmit buffer empty
                 self.ready_toggle = !self.ready_toggle;
-                if self.ready_toggle {
-                    0b11
-                } else {
-                    0
-                }
+                if self.ready_toggle { 0b11 } else { 0 }
             }
             0x000C => {
                 // DR register
@@ -65,7 +58,7 @@ impl Peripheral for Spi {
 
                 v
             }
-            _ => 0,
+            _ => 0
         }
     }
 
@@ -78,36 +71,26 @@ impl Peripheral for Spi {
             0x000C => {
                 // DR register
 
-                self.rx_buffer = self
-                    .ext_device
-                    .as_ref()
-                    .map(|d| d.borrow_mut())
-                    .map(|mut d| {
-                        if self.is_16bits() {
-                            let h = d.read(sys, ()) as u32;
-                            let l = d.read(sys, ()) as u32;
-                            (h << 8) | l
-                        } else {
-                            d.read(sys, ()) as u32
-                        }
-                    })
-                    .unwrap_or(0);
+                self.rx_buffer = self.ext_device.as_ref().map(|d| d.borrow_mut()).map(|mut d| {
+                    if self.is_16bits() {
+                        let h = d.read(sys, ()) as u32;
+                        let l = d.read(sys, ()) as u32;
+                        (h << 8) | l
+                    } else {
+                        d.read(sys, ()) as u32
+                    }
+                }).unwrap_or(0);
 
                 if self.is_16bits() {
-                    self.ext_device
-                        .as_ref()
-                        .map(|d| d.borrow_mut())
-                        .map(|mut d| {
-                            d.write(sys, (), (value >> 8) as u8);
-                            d.write(sys, (), value as u8);
-                        });
+                    self.ext_device.as_ref().map(|d| d.borrow_mut()).map(|mut d| {
+                        d.write(sys, (), (value >> 8) as u8);
+                        d.write(sys, (), value as u8);
+                    });
 
                     trace!("{} write={:04x?}", self.name, value as u16);
                 } else {
                     let v = value as u8;
-                    self.ext_device
-                        .as_ref()
-                        .map(|d| d.borrow_mut().write(sys, (), v));
+                    self.ext_device.as_ref().map(|d| d.borrow_mut().write(sys, (), v));
                     trace!("{} write={:02x?}", self.name, v);
                 }
             }

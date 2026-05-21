@@ -6,7 +6,7 @@ use std::convert::TryFrom;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use crate::{system::System, util};
+use crate::{util, system::System};
 
 use super::ExtDevice;
 
@@ -36,11 +36,7 @@ impl SpiFlash {
 
         content.resize(config.size, 0);
 
-        Ok(Self {
-            config,
-            content,
-            ..Self::default()
-        })
+        Ok(Self { config, content, ..Self::default() })
     }
 }
 
@@ -52,7 +48,9 @@ impl ExtDevice<(), u8> for SpiFlash {
 
     fn read(&mut self, _sys: &System, _addr: ()) -> u8 {
         match self.reply.as_mut() {
-            Some(Reply::Data(d)) => d.pop_front().unwrap_or_default(),
+            Some(Reply::Data(d)) => {
+                d.pop_front().unwrap_or_default()
+            }
 
             Some(Reply::FileContent(addr)) => {
                 let c = self.content[*addr];
@@ -100,26 +98,21 @@ impl SpiFlash {
                 let data = id.to_be_bytes();
                 Some(Reply::Data(data.into()))
             }
-            (Command::ReadData, [a, b, c]) => {
-                let mut addr = u32::from_be_bytes([0, *a, *b, *c]) as usize;
+            (Command::ReadData, [a,b,c]) => {
+                let mut addr = u32::from_be_bytes([0,*a,*b,*c]) as usize;
 
                 if addr >= self.config.size {
-                    warn!(
-                        "{} cmd={:?} addr=0x{:06x} larger than size={:06x}",
-                        self.name, cmd, addr, self.config.size
-                    );
+                    warn!("{} cmd={:?} addr=0x{:06x} larger than size={:06x}",
+                        self.name, cmd, addr, self.config.size);
                     addr = addr % self.config.size;
                 }
 
                 Some(Reply::FileContent(addr))
             }
             _ => None,
-        }
-        .map(|reply| {
-            debug!(
-                "{} cmd={:?} args={:02x?} reply={:02x?}",
-                self.name, cmd, args, reply
-            );
+        }.map(|reply| {
+            debug!("{} cmd={:?} args={:02x?} reply={:02x?}",
+                self.name, cmd, args, reply);
             reply
         })
     }

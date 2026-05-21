@@ -2,22 +2,23 @@
 
 mod config;
 mod emulator;
-mod ext_devices;
-mod framebuffers;
-mod peripherals;
-mod system;
 mod util;
+mod peripherals;
+mod ext_devices;
+mod system;
+mod framebuffers;
 
-use anyhow::{Context, Result};
-use clap::Parser;
-use env_logger::fmt::WriteStyle;
-use log::LevelFilter;
 use std::io::prelude::*;
 use std::sync::atomic::Ordering::Relaxed;
+use clap::Parser;
+use anyhow::{Result, Context};
+use env_logger::fmt::WriteStyle;
+use log::LevelFilter;
 
 use config::Config;
 use emulator::run_emulator;
 use util::read_file_str;
+
 
 #[macro_use]
 extern crate log;
@@ -146,22 +147,10 @@ fn init_logging(args: &Args) {
             let mut style = buf.style();
             let level = match record.level() {
                 log::Level::Error => style.set_color(Color::Red).set_intense(true).value("ERROR"),
-                log::Level::Warn => style
-                    .set_color(Color::Yellow)
-                    .set_intense(true)
-                    .value("WARN "),
-                log::Level::Info => style
-                    .set_color(Color::Green)
-                    .set_intense(true)
-                    .value("INFO "),
-                log::Level::Debug => style
-                    .set_color(Color::Cyan)
-                    .set_intense(true)
-                    .value("DEBUG"),
-                log::Level::Trace => style
-                    .set_color(Color::Blue)
-                    .set_intense(true)
-                    .value("TRACE"),
+                log::Level::Warn =>  style.set_color(Color::Yellow).set_intense(true).value("WARN "),
+                log::Level::Info =>  style.set_color(Color::Green).set_intense(true).value("INFO "),
+                log::Level::Debug => style.set_color(Color::Cyan).set_intense(true).value("DEBUG"),
+                log::Level::Trace => style.set_color(Color::Blue).set_intense(true).value("TRACE"),
             };
 
             let mut style = buf.style();

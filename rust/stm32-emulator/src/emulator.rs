@@ -1,27 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use crate::{
-    config::Config,
-    framebuffers::sdl_engine::{PUMP_EVENT_INST_INTERVAL, SDL},
-    system::System,
-    util::UniErr,
-    Args,
-};
-use anyhow::{bail, Context as _, Result};
-use capstone::prelude::*;
-use std::{
-    cell::RefCell,
-    collections::BTreeMap,
-    mem::MaybeUninit,
-    path::Path,
-    rc::Rc,
-    sync::atomic::{AtomicBool, AtomicU64, Ordering},
-};
+use std::{mem::MaybeUninit, sync::atomic::{AtomicU64, Ordering, AtomicBool}, cell::RefCell, collections::BTreeMap, path::Path, rc::Rc};
 use svd_parser::svd::Device as SvdDevice;
-use unicorn_engine::{
-    unicorn_const::{Arch, HookType, MemType, Mode},
-    RegisterARM, Unicorn,
-};
+use unicorn_engine::{unicorn_const::{Arch, Mode, HookType, MemType}, Unicorn, RegisterARM};
+use crate::{config::Config, util::UniErr, Args, system::System, framebuffers::sdl_engine::{PUMP_EVENT_INST_INTERVAL, SDL}};
+use anyhow::{Context as _, Result, bail};
+use capstone::prelude::*;
 
 #[repr(C)]
 struct VectorTable {
@@ -33,10 +17,7 @@ impl VectorTable {
     pub fn from_memory(uc: &Unicorn<()>, addr: u32) -> Result<Self> {
         unsafe {
             let mut self_ = MaybeUninit::<Self>::uninit();
-            let buf = std::slice::from_raw_parts_mut(
-                self_.as_mut_ptr() as *mut u8,
-                std::mem::size_of::<Self>(),
-            );
+            let buf = std::slice::from_raw_parts_mut(self_.as_mut_ptr() as *mut u8, std::mem::size_of::<Self>());
             uc.mem_read(addr.into(), buf).map_err(UniErr)?;
             Ok(self_.assume_init())
         }
@@ -48,7 +29,7 @@ fn thumb(pc: u64) -> u64 {
 }
 
 // PC + instruction size
-pub static mut LAST_INSTRUCTION: (u32, u8) = (0, 0);
+pub static mut LAST_INSTRUCTION: (u32, u8) = (0,0);
 pub static NUM_INSTRUCTIONS: AtomicU64 = AtomicU64::new(0);
 static CONTINUE_EXECUTION: AtomicBool = AtomicBool::new(false);
 static BUSY_LOOP_REACHED: AtomicBool = AtomicBool::new(false);
@@ -62,11 +43,7 @@ fn disassemble_instruction(diassembler: &Capstone, uc: &Unicorn<()>, pc: u64) ->
 
     if let Ok(disasm) = diassembler.disasm_count(&instr, pc, 1) {
         if let Some(instr) = disasm.first() {
-            return format!(
-                "{:5} {}",
-                instr.mnemonic().unwrap(),
-                instr.op_str().unwrap()
-            );
+            return format!("{:5} {}", instr.mnemonic().unwrap(), instr.op_str().unwrap());
         }
     }
 
@@ -271,7 +248,7 @@ pub fn dump_stack(uc: &mut Unicorn<()>, count: usize) {
     let mut sp = uc.reg_read(RegisterARM::SP).unwrap();
 
     for _ in 0..count {
-        let mut v = [0, 0, 0, 0];
+        let mut v = [0,0,0,0];
         if uc.mem_read(sp, &mut v).is_err() {
             info!("stack dump finished due to mem read error");
             return;

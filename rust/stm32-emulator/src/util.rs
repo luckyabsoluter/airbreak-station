@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use anyhow::{Context, Result};
 use std::error::Error;
 use std::io::prelude::*;
-use svd_parser::svd::{MaybeArray, PeripheralInfo, RegisterInfo};
+use svd_parser::svd::{MaybeArray, RegisterInfo, PeripheralInfo};
 use unicorn_engine::unicorn_const::uc_error;
+use anyhow::{Context, Result};
 
 #[derive(Debug)]
 pub struct UniErr(pub uc_error);
@@ -20,7 +20,8 @@ pub fn round_up(n: usize, boundary: usize) -> usize {
 }
 
 pub fn read_file(path: &str) -> Result<Vec<u8>> {
-    let mut file = std::fs::File::open(path).with_context(|| format!("Failed to open {}", path))?;
+    let mut file = std::fs::File::open(path)
+        .with_context(|| format!("Failed to open {}", path))?;
 
     let mut buf = Vec::new();
     file.read_to_end(&mut buf)
@@ -29,18 +30,16 @@ pub fn read_file(path: &str) -> Result<Vec<u8>> {
     Ok(buf)
 }
 
+
 pub fn read_file_str(path: &str) -> Result<String> {
     let content = read_file(path)?;
     let str = String::from_utf8(content)?;
     Ok(str)
 }
 
+
 pub fn extract_svd_registers(p: &MaybeArray<PeripheralInfo>) -> Vec<RegisterInfo> {
-    fn collect_register(
-        reg: &RegisterInfo,
-        in_array: Option<(u32, String)>,
-        cluster: Option<(u32, &str)>,
-    ) -> RegisterInfo {
+    fn collect_register(reg: &RegisterInfo, in_array: Option<(u32, String)>, cluster: Option<(u32, &str)>) -> RegisterInfo {
         let mut reg = reg.clone();
 
         if let Some((array_address, name)) = in_array {
@@ -55,24 +54,23 @@ pub fn extract_svd_registers(p: &MaybeArray<PeripheralInfo>) -> Vec<RegisterInfo
         reg
     }
 
-    fn collect_registers<'a>(
-        regs: impl IntoIterator<Item = &'a MaybeArray<RegisterInfo>>,
-        cluster: Option<(u32, &str)>,
-    ) -> Vec<RegisterInfo> {
-        regs.into_iter()
-            .flat_map(|r| match r {
-                MaybeArray::Single(r) => vec![collect_register(r, None, cluster)].into_iter(),
+    fn collect_registers<'a>(regs: impl IntoIterator<Item=&'a MaybeArray<RegisterInfo>>, cluster: Option<(u32, &str)>) -> Vec<RegisterInfo> {
+        regs.into_iter().flat_map(|r| {
+            match r {
+                MaybeArray::Single(r) => {
+                    vec![collect_register(r, None, cluster)].into_iter()
+                }
                 MaybeArray::Array(r, dim) => {
                     let offsets = svd_parser::svd::register::address_offsets(&r, &dim);
                     let names = svd_parser::svd::array::names(r, dim);
-                    offsets
-                        .zip(names)
+                    offsets.zip(names)
                         .map(|in_array| collect_register(r, Some(in_array), cluster))
                         .collect::<Vec<_>>()
                         .into_iter()
                 }
-            })
-            .collect()
+            }
+        })
+        .collect()
     }
 
     let mut all_regs = collect_registers(p.registers(), None);
@@ -86,11 +84,9 @@ pub fn extract_svd_registers(p: &MaybeArray<PeripheralInfo>) -> Vec<RegisterInfo
                 let offsets = svd_parser::svd::cluster::address_offsets(c, dim);
                 let indexes = dim.indexes();
 
+
                 for (offset, index) in offsets.zip(indexes) {
-                    all_regs.append(&mut collect_registers(
-                        c.all_registers(),
-                        Some((offset, &index)),
-                    ));
+                    all_regs.append(&mut collect_registers(c.all_registers(), Some((offset, &index))));
                 }
             }
         }
@@ -98,6 +94,7 @@ pub fn extract_svd_registers(p: &MaybeArray<PeripheralInfo>) -> Vec<RegisterInfo
 
     all_regs
 }
+
 
 #[derive(Default, Debug)]
 pub struct Point {

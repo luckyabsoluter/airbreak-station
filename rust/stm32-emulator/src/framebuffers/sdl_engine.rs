@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::{cell::RefCell, rc::Rc, sync::Mutex};
+use std::{sync::Mutex, rc::Rc, cell::RefCell};
 
 use sdl2::{
-    event::Event, keyboard::Keycode, pixels, render::Canvas, video::Window, EventPump,
-    VideoSubsystem,
+    event::Event,
+    keyboard::Keycode,
+    EventPump, VideoSubsystem, render::Canvas, video::Window, pixels,
 };
 
 lazy_static::lazy_static! {
@@ -29,16 +30,11 @@ impl SdlEngine {
 
         let event_pump = sdl_context.event_pump().unwrap();
 
-        Self {
-            event_pump,
-            video_subsystem,
-        }
+        Self { event_pump, video_subsystem }
     }
 
     pub fn new_canvas(&mut self, title: &str, width: u32, height: u32) -> Canvas<Window> {
-        let window = self
-            .video_subsystem
-            .window(title, width, height)
+        let window = self.video_subsystem.window(title, width, height)
             .resizable()
             .build()
             .unwrap();

@@ -1,15 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::{cell::RefCell, collections::VecDeque, convert::TryFrom, rc::Rc};
+use std::{convert::TryFrom, collections::VecDeque, rc::Rc, cell::RefCell};
 
 use anyhow::Result;
 use serde::Deserialize;
 
+use crate::{system::System, framebuffers::{Framebuffers, Framebuffer, RGB888}};
 use super::ExtDevice;
-use crate::{
-    framebuffers::{Framebuffer, Framebuffers, RGB888},
-    system::System,
-};
 
 #[derive(Debug, Deserialize)]
 pub struct LcdConfig {
@@ -57,8 +54,8 @@ impl Lcd {
 
     #[inline]
     fn get_framebuffer_pixel_index(&mut self, x: u16, y: u16) -> usize {
-        let x = x.min(self.width - 1) as usize;
-        let y = y.min(self.height - 1) as usize;
+        let x = x.min(self.width-1) as usize;
+        let y = y.min(self.height-1) as usize;
         x + y * self.width as usize
     }
 
@@ -85,9 +82,11 @@ impl Lcd {
             }
         }
 
+
         self.current_position = Point { x, y };
     }
 }
+
 
 impl ExtDevice<(), u8> for Lcd {
     fn connect_peripheral(&mut self, peri_name: &str) -> String {
@@ -138,16 +137,14 @@ impl Lcd {
                 Some(Reply(vec![].into()))
             }
             _ => None,
-        }
-        .map(|reply| {
-            debug!(
-                "{} cmd={:?} args={:02x?} reply={:02x?}",
-                self.name, cmd, args, reply
-            );
+        }.map(|reply| {
+            debug!("{} cmd={:?} args={:02x?} reply={:02x?}",
+                self.name, cmd, args, reply);
             reply
         })
     }
 }
+
 
 #[derive(Clone, Copy, Debug, num_enum::TryFromPrimitive)]
 #[repr(u8)]
@@ -158,6 +155,7 @@ enum Command {
     SetPalette = 0xF1,
     GetPalette = 0xF2,
 }
+
 
 #[derive(Debug)]
 struct Reply(VecDeque<u8>);
