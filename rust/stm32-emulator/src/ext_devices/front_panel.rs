@@ -204,12 +204,36 @@ pub fn script_action(action: &str) -> bool {
             input.pulse_button(Button::Power, "script");
             true
         }
+        "power_down" | "power_button_down" => {
+            input.set_button(Button::Power, true, "script");
+            true
+        }
+        "power_up" | "power_button_up" => {
+            input.set_button(Button::Power, false, "script");
+            true
+        }
         "home" | "home_button" => {
             input.pulse_button(Button::Home, "script");
             true
         }
+        "home_down" | "home_button_down" => {
+            input.set_button(Button::Home, true, "script");
+            true
+        }
+        "home_up" | "home_button_up" => {
+            input.set_button(Button::Home, false, "script");
+            true
+        }
         "encoder" | "encoder_button" => {
             input.pulse_button(Button::Encoder, "script");
+            true
+        }
+        "encoder_down" | "encoder_button_down" => {
+            input.set_button(Button::Encoder, true, "script");
+            true
+        }
+        "encoder_up" | "encoder_button_up" => {
+            input.set_button(Button::Encoder, false, "script");
             true
         }
         "cw" | "clockwise" | "encoder_cw" => {

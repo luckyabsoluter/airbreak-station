@@ -62,8 +62,6 @@
 #define RETURN_PAGE_PLUS_MY_OPTIONS 0x01u
 #define RETURN_PAGE_COMPACT_MY_OPTIONS 0x02u
 #define CLINICAL_MODE_LABEL_ID 0x03Au
-#define CLINICAL_MODE_PAGE_INDEX 0x06u
-#define CLINICAL_MODE_PAGE_ROW 0x0037u
 #define NAV_ROW_STYLE 0x29u
 #define EVENT_PAGE_INDEX 0x01BCu
 #define EVENT_PAGE_ROW 0x01BDu
@@ -85,6 +83,10 @@
 #define AIRBREAK_BLOCK_BREAKER_ROW1_TEXT_ADDR 0x2001FD40u
 #define AIRBREAK_BLOCK_BREAKER_ROW2_TEXT_ADDR 0x2001FD60u
 #define AIRBREAK_ROTARY_PROVIDER_ADDR 0x200174E4u
+#define AIRBREAK_STOCK_CLINICAL_INPUT_HOST_ADDR 0x6800B840u
+#define CLINICAL_INPUT_CURRENT_ACTION_OFF 0x10u
+#define CLINICAL_MENU_ROOT_ACTION_CODE 0x07u
+#define VTABLE_ACTION_EXEC_OFF 0x08u
 #define AIRBREAK_RETURN_STATE_MAGIC 0xA5000000u
 #define AIRBREAK_RETURN_STATE_MAGIC_MASK 0xFF000000u
 #define AIRBREAK_BLOCK_BREAKER_STATE_MAGIC 0xB4000000u
@@ -148,6 +150,7 @@ typedef uint32_t (*fn_event_get_t)(uint32_t event_id);
 typedef uint32_t (*fn_event_set_t)(uint32_t event_id, uint32_t value);
 typedef uint32_t (*fn_action_vfunc_t)(uint32_t action_obj);
 typedef uint32_t (*fn_wait_predicate_t)(uint32_t wait_base, uint32_t wait_ticks);
+typedef uint32_t (*fn_input_action_t)(uint32_t obj, uint32_t action_code, uint32_t pressed);
 
 enum airbreak_screen_id {
     AIRBREAK_SCREEN_CUSTOM_ABOUT = AIRBREAK_UI_SCREEN_CUSTOM_ABOUT_ID,
@@ -229,6 +232,33 @@ static uint32_t patch_custom_about_entry_exec(uint32_t action_obj) {
     custom_page_set_visible_count(CUSTOM_PAGE_VISIBLE_CUSTOM_COUNT);
     event_set_fn(EVENT_PAGE_INDEX, AIRBREAK_CUSTOM_PAGE_INDEX);
     event_set_fn(EVENT_PAGE_ROW, 0u);
+    return 0u;
+}
+
+__attribute__((used, noinline))
+static uint32_t patch_clinical_mode_entry_exec(uint32_t action_obj) {
+    volatile uint32_t *current_slot =
+        (volatile uint32_t *)(AIRBREAK_STOCK_CLINICAL_INPUT_HOST_ADDR + CLINICAL_INPUT_CURRENT_ACTION_OFF);
+    uint32_t target;
+    uint32_t vtable;
+    fn_input_action_t input_action_fn;
+
+    (void)action_obj;
+
+    target = *current_slot;
+    if (target == 0u) {
+        return 0u;
+    }
+
+    vtable = *(volatile uint32_t *)target;
+    if (vtable == 0u) {
+        return 0u;
+    }
+
+    input_action_fn = (fn_input_action_t)(
+        *(volatile uint32_t *)(vtable + VTABLE_ACTION_EXEC_OFF) | 1u
+    );
+    input_action_fn(target, CLINICAL_MENU_ROOT_ACTION_CODE, 1u);
     return 0u;
 }
 
@@ -1201,6 +1231,14 @@ static const fn_action_vfunc_t CUSTOM_ABOUT_BACK_ACTION_VTABLE[4] = {
     patch_custom_about_back_exec,
 };
 
+__attribute__((used, aligned(4)))
+static const fn_action_vfunc_t CLINICAL_MODE_ENTRY_ACTION_VTABLE[4] = {
+    (fn_action_vfunc_t)ADDR_NAV_ACTION_VFUNC_0,
+    (fn_action_vfunc_t)0u,
+    (fn_action_vfunc_t)ADDR_NAV_ACTION_VFUNC_8,
+    patch_clinical_mode_entry_exec,
+};
+
 #if AIRBREAK_UI_HAS_BLOCK_BREAKER
 __attribute__((used, aligned(4)))
 static const fn_action_vfunc_t BLOCK_BREAKER_ENTRY_ACTION_VTABLE[4] = {
@@ -1238,11 +1276,11 @@ static const struct airbreak_menu_row AIRBREAK_MY_OPTIONS_ROWS[] = {
     },
 #elif AIRBREAK_UI_SLOT0 == AIRBREAK_UI_SCREEN_CLINICAL_MODE_ID && AIRBREAK_UI_HAS_CLINICAL_MODE
     {
-        AIRBREAK_ROW_ACTION_STOCK_PAGE,
+        AIRBREAK_ROW_ACTION_SCREEN,
         CLINICAL_MODE_LABEL_ID,
-        CLINICAL_MODE_PAGE_INDEX,
-        CLINICAL_MODE_PAGE_ROW,
-        (const fn_action_vfunc_t *)0u,
+        0u,
+        0u,
+        CLINICAL_MODE_ENTRY_ACTION_VTABLE,
     },
 #endif
 #if AIRBREAK_UI_SLOT1 == AIRBREAK_UI_SCREEN_BLOCK_BREAKER_ID && AIRBREAK_UI_HAS_BLOCK_BREAKER
@@ -1263,11 +1301,11 @@ static const struct airbreak_menu_row AIRBREAK_MY_OPTIONS_ROWS[] = {
     },
 #elif AIRBREAK_UI_SLOT1 == AIRBREAK_UI_SCREEN_CLINICAL_MODE_ID && AIRBREAK_UI_HAS_CLINICAL_MODE
     {
-        AIRBREAK_ROW_ACTION_STOCK_PAGE,
+        AIRBREAK_ROW_ACTION_SCREEN,
         CLINICAL_MODE_LABEL_ID,
-        CLINICAL_MODE_PAGE_INDEX,
-        CLINICAL_MODE_PAGE_ROW,
-        (const fn_action_vfunc_t *)0u,
+        0u,
+        0u,
+        CLINICAL_MODE_ENTRY_ACTION_VTABLE,
     },
 #endif
 #if AIRBREAK_UI_SLOT2 == AIRBREAK_UI_SCREEN_BLOCK_BREAKER_ID && AIRBREAK_UI_HAS_BLOCK_BREAKER
@@ -1288,11 +1326,11 @@ static const struct airbreak_menu_row AIRBREAK_MY_OPTIONS_ROWS[] = {
     },
 #elif AIRBREAK_UI_SLOT2 == AIRBREAK_UI_SCREEN_CLINICAL_MODE_ID && AIRBREAK_UI_HAS_CLINICAL_MODE
     {
-        AIRBREAK_ROW_ACTION_STOCK_PAGE,
+        AIRBREAK_ROW_ACTION_SCREEN,
         CLINICAL_MODE_LABEL_ID,
-        CLINICAL_MODE_PAGE_INDEX,
-        CLINICAL_MODE_PAGE_ROW,
-        (const fn_action_vfunc_t *)0u,
+        0u,
+        0u,
+        CLINICAL_MODE_ENTRY_ACTION_VTABLE,
     },
 #endif
 };

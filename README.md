@@ -112,8 +112,9 @@ custom page and shows `This is Custom About` by default. Block Breaker routes to
 sets the title to `Block Breaker`, and then draws an Atari-style full-frame game as the owned LCD surface. The active game page has no stock Back row or control rows, and the event setter gate blocks stock page, row, and selected-row writes while the game is active, so encoder rotation/clicks cannot drive the hidden stock UI behind the game. Paddle input comes from the firmware rotary provider or raw PF10/PF11 encoder phase reads, and consumed rotary state is cleared before the stock UI can reuse it. Fire comes from the PG11 encoder-button edge, the ball advances on the post-render tick without requiring another button press, and PG7 Home first restores the stored My Options origin, clears the game SRAM state, releases the rotary provider back to the stock UI, and then lets the stock Home handler complete the exit. The ball uses a finer 16x16 logical grid, while the bricks use an independent 18-bit `6x3` SRAM map at `0x2001FCC0` so one collision clears one brick. Each AirBreak row
 stores its My Options origin in the row action object, the entry action copies that origin and the current selected row into
 an AirBreak-owned SRAM scratch word, and the owning screen's Back action reads that scratch state before returning. Custom
-About and Block Breaker no longer share a Back action; Block Breaker owns its cleanup and input release path. The Clinical Mode row routes to `index=6,row=0x37`,
-which the emulator verified lands on the clinical Settings/Therapy page. Any crash or invalid state in the
+About and Block Breaker no longer share a Back action; Block Breaker owns its cleanup and input release path. The Clinical Mode row dispatches the same stock
+hidden clinical-entry action used by the Home+encoder shortcut through the firmware's clinical input host, so it enters the stock Clinical Menu root instead of
+guessing a page index. Any crash or invalid state in the
 resulting firmware should also be observable through the local emulator path.
 
 ## Layout
