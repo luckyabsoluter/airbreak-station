@@ -1,10 +1,5 @@
 # Private firmware and generated firmware images.
 /firmware/
-/firmware/*.bin
-/firmware/*.elf
-/firmware/*.hex
-/firmware/*.srec
-/firmware/*.img
 /artifacts/
 /patches/out/
 
@@ -14,7 +9,7 @@
 
 # Local logs and transient files.
 /logs/
-/**/*.log
-/**/*.tmp
-/**/__pycache__/
-/**/*.py[cod]
+*.log
+*.tmp
+__pycache__/
+*.py[cod]
