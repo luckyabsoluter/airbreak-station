@@ -6,6 +6,12 @@ AIRBREAK_FRONT_PANEL_ENTER_MY_OPTIONS_AT="${AIRBREAK_FRONT_PANEL_ENTER_MY_OPTION
 AIRBREAK_FRONT_PANEL_FIRST_ROTATE_AT="${AIRBREAK_FRONT_PANEL_FIRST_ROTATE_AT:-570000000}"
 AIRBREAK_FRONT_PANEL_ROTATE_INTERVAL="${AIRBREAK_FRONT_PANEL_ROTATE_INTERVAL:-40000000}"
 AIRBREAK_FRONT_PANEL_SELECT_AFTER="${AIRBREAK_FRONT_PANEL_SELECT_AFTER:-20000000}"
+AIRBREAK_CLINICAL_SETTINGS_ENTER_DELAY="${AIRBREAK_CLINICAL_SETTINGS_ENTER_DELAY:-100000000}"
+AIRBREAK_CLINICAL_SETTINGS_ABOUT_STEPS="${AIRBREAK_CLINICAL_SETTINGS_ABOUT_STEPS:-30}"
+AIRBREAK_CLINICAL_SETTINGS_ABOUT_FIRST_ROTATE_DELAY="${AIRBREAK_CLINICAL_SETTINGS_ABOUT_FIRST_ROTATE_DELAY:-160000000}"
+AIRBREAK_CLINICAL_SETTINGS_ABOUT_ROTATE_INTERVAL="${AIRBREAK_CLINICAL_SETTINGS_ABOUT_ROTATE_INTERVAL:-5000000}"
+AIRBREAK_CLINICAL_SETTINGS_ABOUT_ENTER_DELAY="${AIRBREAK_CLINICAL_SETTINGS_ABOUT_ENTER_DELAY:-330000000}"
+AIRBREAK_CLINICAL_SETTINGS_ABOUT_BACK_DELAY="${AIRBREAK_CLINICAL_SETTINGS_ABOUT_BACK_DELAY:-430000000}"
 
 airbreak_ui_screen_id() {
   case "$1" in
@@ -101,6 +107,26 @@ airbreak_ui_target_index() {
   return 1
 }
 
+airbreak_ui_front_panel_select_at_for_target() {
+  local target="$1"
+  local index
+  local steps
+
+  index="$(airbreak_ui_target_index "${target}")" || return $?
+  steps=$((AIRBREAK_MY_OPTIONS_AIRBREAK_SECTION_STEPS + index))
+  printf '%s\n' "$((AIRBREAK_FRONT_PANEL_FIRST_ROTATE_AT + (steps * AIRBREAK_FRONT_PANEL_ROTATE_INTERVAL) + AIRBREAK_FRONT_PANEL_SELECT_AFTER))"
+}
+
+airbreak_ui_sequence_flow_known() {
+  case "$1" in
+    ""|"-"|clinical_settings_about_return) return 0 ;;
+    *)
+      echo "airbreak_ui=fail reason=unknown_sequence_flow flow=$1 result=fail" >&2
+      return 1
+      ;;
+  esac
+}
+
 airbreak_ui_front_panel_sequence_for_target() {
   local target="$1"
   local index
@@ -124,4 +150,38 @@ airbreak_ui_front_panel_sequence_for_target() {
   select_at=$((AIRBREAK_FRONT_PANEL_FIRST_ROTATE_AT + (steps * AIRBREAK_FRONT_PANEL_ROTATE_INTERVAL) + AIRBREAK_FRONT_PANEL_SELECT_AFTER))
   sequence="${sequence},encoder@${select_at}"
   printf '%s\n' "${sequence}"
+}
+
+airbreak_ui_front_panel_sequence_for_case() {
+  local target="$1"
+  local flow="${2:-}"
+  local sequence
+  local select_at
+  local rotate_at
+  local i
+
+  airbreak_ui_sequence_flow_known "${flow}" || return $?
+  sequence="$(airbreak_ui_front_panel_sequence_for_target "${target}")" || return $?
+  case "${flow}" in
+    ""|"-")
+      printf '%s\n' "${sequence}"
+      ;;
+    clinical_settings_about_return)
+      if [[ "${target}" != "clinical_mode" ]]; then
+        echo "airbreak_ui=fail reason=flow_target_mismatch flow=${flow} target=${target} result=fail" >&2
+        return 1
+      fi
+      select_at="$(airbreak_ui_front_panel_select_at_for_target "${target}")" || return $?
+      sequence="${sequence},encoder@$((select_at + AIRBREAK_CLINICAL_SETTINGS_ENTER_DELAY))"
+      i=0
+      while (( i < AIRBREAK_CLINICAL_SETTINGS_ABOUT_STEPS )); do
+        rotate_at=$((select_at + AIRBREAK_CLINICAL_SETTINGS_ABOUT_FIRST_ROTATE_DELAY + (i * AIRBREAK_CLINICAL_SETTINGS_ABOUT_ROTATE_INTERVAL)))
+        sequence="${sequence},cw@${rotate_at}"
+        i=$((i + 1))
+      done
+      sequence="${sequence},encoder@$((select_at + AIRBREAK_CLINICAL_SETTINGS_ABOUT_ENTER_DELAY))"
+      sequence="${sequence},encoder@$((select_at + AIRBREAK_CLINICAL_SETTINGS_ABOUT_BACK_DELAY))"
+      printf '%s\n' "${sequence}"
+      ;;
+  esac
 }

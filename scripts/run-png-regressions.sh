@@ -45,6 +45,7 @@ declare -A CASE_MAX_INSTRUCTIONS=()
 declare -A CASE_FRAME=()
 declare -A CASE_TARGET=()
 declare -A CASE_SELECT_AFTER=()
+declare -A CASE_SEQUENCE_FLOW=()
 declare -A CASE_BASELINE=()
 declare -a CASE_IDS=()
 RUN_ONE_OUTCOME=""
@@ -93,8 +94,8 @@ load_firmwares() {
 }
 
 load_cases() {
-  local id target max_instructions frame select_after baseline_case
-  while IFS=$'\t' read -r id target max_instructions frame select_after baseline_case _; do
+  local id target max_instructions frame select_after sequence_flow baseline_case
+  while IFS=$'\t' read -r id target max_instructions frame select_after sequence_flow baseline_case _; do
     [[ -z "${id}" || "${id}" == \#* ]] && continue
     if [[ -z "${target:-}" || -z "${max_instructions:-}" || -z "${frame:-}" ]]; then
       echo "png_regression=fail stage=config reason=bad_case_manifest case=${id} result=fail" >&2
@@ -104,12 +105,14 @@ load_cases() {
       echo "png_regression=fail stage=config reason=bad_case_select_after case=${id} value=${select_after} result=fail" >&2
       exit 2
     fi
+    airbreak_ui_sequence_flow_known "${sequence_flow:-}" || exit $?
     airbreak_ui_screen_id "${target}" >/dev/null || exit $?
     CASE_IDS+=("${id}")
     CASE_TARGET["${id}"]="${target}"
     CASE_MAX_INSTRUCTIONS["${id}"]="${max_instructions}"
     CASE_FRAME["${id}"]="${frame}"
     CASE_SELECT_AFTER["${id}"]="${select_after:-}"
+    CASE_SEQUENCE_FLOW["${id}"]="${sequence_flow:-}"
     CASE_BASELINE["${id}"]="${baseline_case:-}"
   done < "${CASES_FILE}"
 }
@@ -204,6 +207,7 @@ run_one() {
   local max_instructions="${CASE_MAX_INSTRUCTIONS[${case_id}]}"
   local frame_relpath="${CASE_FRAME[${case_id}]}"
   local select_after="${CASE_SELECT_AFTER[${case_id}]:-}"
+  local sequence_flow="${CASE_SEQUENCE_FLOW[${case_id}]:-}"
   local saved_select_after="${AIRBREAK_FRONT_PANEL_SELECT_AFTER}"
   local sequence=""
   local run_root="${OUT_DIR}/runs/${firmware_id}/${case_id}"
@@ -228,7 +232,7 @@ run_one() {
   if [[ -n "${select_after}" && "${select_after}" != "-" ]]; then
     AIRBREAK_FRONT_PANEL_SELECT_AFTER="${select_after}"
   fi
-  if ! sequence="$(airbreak_ui_front_panel_sequence_for_target "${target}")"; then
+  if ! sequence="$(airbreak_ui_front_panel_sequence_for_case "${target}" "${sequence_flow}")"; then
     AIRBREAK_FRONT_PANEL_SELECT_AFTER="${saved_select_after}"
     RUN_ONE_OUTCOME="skip"
     echo "png_regression=skip firmware=${firmware_id} case=${case_id} reason=target_not_enabled target=${target} ui_screens=${AIRBREAK_UI_SCREENS} result=skip"

@@ -4,6 +4,7 @@ This directory contains static LCD PNG baselines for firmware-specific regressio
 encoder row counts. `scripts/run-png-regressions.sh` derives the front-panel sequence from the shared `AIRBREAK_UI_SCREENS`
 model so changing menu order does not require editing every case. A case can set `baseline_case` to reuse another case's
 PNG when the input timing differs but the expected final pixels must remain identical.
+Cases can also set `sequence_flow` to append a named workflow after the target menu is opened.
 The optional `select_after` column overrides the encoder-press delay for a case; `0` is used to catch stale rotation input
 leaking into Block Breaker immediately after menu entry.
 
