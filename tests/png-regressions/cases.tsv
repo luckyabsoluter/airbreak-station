@@ -1,4 +1,4 @@
-# case_id	max_instructions	frame_relpath	front_panel_sequence
-block_breaker_entry	940000000	front-panel-snapshots/after-encoder.png	encoder@500000000,cw@570000000,cw@610000000,cw@650000000,cw@690000000,cw@730000000,encoder@790000000
-custom_about	940000000	front-panel-snapshots/after-encoder.png	encoder@500000000,cw@570000000,cw@610000000,cw@650000000,cw@690000000,cw@730000000,cw@770000000,encoder@830000000
-clinical_menu	980000000	front-panel-snapshots/after-encoder.png	encoder@500000000,cw@570000000,cw@610000000,cw@650000000,cw@690000000,cw@730000000,cw@770000000,cw@810000000,encoder@870000000
+# case_id	ui_target	max_instructions	frame_relpath
+block_breaker_entry	block_breaker	940000000	lcd-frame.png
+custom_about	custom_about	940000000	front-panel-snapshots/after-encoder.png
+clinical_menu	clinical_mode	980000000	front-panel-snapshots/after-encoder.png

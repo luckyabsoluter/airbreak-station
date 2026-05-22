@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${ROOT_DIR}/scripts/lib/airbreak_ui_model.sh"
 
 SOURCE_FIRMWARE="${AIRBREAK_SOURCE_FIRMWARE:-${ROOT_DIR}/firmware/resmed-air10.bin}"
 PATCHED_FIRMWARE="${AIRBREAK_PATCHED_FIRMWARE:-${ROOT_DIR}/artifacts/firmware/stm32-ui-button.bin}"
@@ -14,77 +15,9 @@ CUSTOM_ABOUT_DETAIL="${AIRBREAK_CUSTOM_ABOUT_DETAIL:-This is Custom About}"
 CLINICAL_LABEL="${AIRBREAK_CLINICAL_LABEL:-Clinical Mode}"
 BLOCK_BREAKER_LABEL="${AIRBREAK_BLOCK_BREAKER_LABEL:-Block Breaker}"
 
-DEFAULT_AIRBREAK_UI_SCREENS="block_breaker,custom_about,clinical_mode"
-if [[ -n "${AIRBREAK_ENABLE_BLOCK_BREAKER+x}" && -z "${AIRBREAK_UI_SCREENS+x}" ]]; then
-  if [[ "${AIRBREAK_ENABLE_BLOCK_BREAKER}" == "0" ]]; then
-    AIRBREAK_UI_SCREENS="custom_about,clinical_mode"
-  else
-    AIRBREAK_UI_SCREENS="${DEFAULT_AIRBREAK_UI_SCREENS}"
-  fi
-else
-  AIRBREAK_UI_SCREENS="${AIRBREAK_UI_SCREENS:-${DEFAULT_AIRBREAK_UI_SCREENS}}"
-fi
-
-ui_screen_enabled() {
-  case ",${AIRBREAK_UI_SCREENS}," in
-    *",$1,"*) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-ui_screen_id() {
-  case "$1" in
-    "") echo 0 ;;
-    block_breaker) echo 1 ;;
-    custom_about) echo 2 ;;
-    clinical_mode) echo 3 ;;
-    *)
-      echo "station_pipeline=fail stage=config reason=unknown_ui_screen screen=$1 result=fail" >&2
-      exit 1
-      ;;
-  esac
-}
-
-IFS=',' read -r -a AIRBREAK_UI_SCREEN_LIST <<< "${AIRBREAK_UI_SCREENS}"
-if [[ -z "${AIRBREAK_UI_SCREENS//,/}" ]]; then
-  echo "station_pipeline=fail stage=config reason=empty_ui_screens result=fail" >&2
+if ! airbreak_ui_configure "$(airbreak_ui_default_screens)"; then
+  echo "station_pipeline=fail stage=config reason=invalid_ui_model result=fail" >&2
   exit 1
-fi
-if [[ "${#AIRBREAK_UI_SCREEN_LIST[@]}" -gt 3 ]]; then
-  echo "station_pipeline=fail stage=config reason=too_many_ui_screens screens=${AIRBREAK_UI_SCREENS} result=fail" >&2
-  exit 1
-fi
-SEEN_UI_SCREENS=","
-for screen in "${AIRBREAK_UI_SCREEN_LIST[@]}"; do
-  [[ -z "${screen}" ]] && continue
-  ui_screen_id "${screen}" >/dev/null
-  case "${SEEN_UI_SCREENS}" in
-    *",${screen},"*)
-      echo "station_pipeline=fail stage=config reason=duplicate_ui_screen screen=${screen} result=fail" >&2
-      exit 1
-      ;;
-  esac
-  SEEN_UI_SCREENS="${SEEN_UI_SCREENS}${screen},"
-done
-AIRBREAK_UI_SLOT0="$(ui_screen_id "${AIRBREAK_UI_SCREEN_LIST[0]:-}")"
-AIRBREAK_UI_SLOT1="$(ui_screen_id "${AIRBREAK_UI_SCREEN_LIST[1]:-}")"
-AIRBREAK_UI_SLOT2="$(ui_screen_id "${AIRBREAK_UI_SCREEN_LIST[2]:-}")"
-
-AIRBREAK_UI_HAS_BLOCK_BREAKER=0
-AIRBREAK_UI_HAS_CUSTOM_ABOUT=0
-AIRBREAK_UI_HAS_CLINICAL_MODE=0
-AIRBREAK_UI_ROW_COUNT=0
-if ui_screen_enabled block_breaker; then
-  AIRBREAK_UI_HAS_BLOCK_BREAKER=1
-  AIRBREAK_UI_ROW_COUNT=$((AIRBREAK_UI_ROW_COUNT + 1))
-fi
-if ui_screen_enabled custom_about; then
-  AIRBREAK_UI_HAS_CUSTOM_ABOUT=1
-  AIRBREAK_UI_ROW_COUNT=$((AIRBREAK_UI_ROW_COUNT + 1))
-fi
-if ui_screen_enabled clinical_mode; then
-  AIRBREAK_UI_HAS_CLINICAL_MODE=1
-  AIRBREAK_UI_ROW_COUNT=$((AIRBREAK_UI_ROW_COUNT + 1))
 fi
 COMPACT_CAPACITY_HWORD="$(printf '0x%04x' $((0x2200 + 11 + AIRBREAK_UI_ROW_COUNT)))"
 EXPANDED_CAPACITY_HWORD="$(printf '0x%04x' $((0x2200 + 16 + AIRBREAK_UI_ROW_COUNT)))"

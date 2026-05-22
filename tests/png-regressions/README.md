@@ -1,6 +1,8 @@
 # PNG Regression Fixtures
 
-This directory contains static LCD PNG baselines for firmware-specific regression checks.
+This directory contains static LCD PNG baselines for firmware-specific regression checks. Cases name UI targets, not raw
+encoder row counts. `scripts/run-png-regressions.sh` derives the front-panel sequence from the shared `AIRBREAK_UI_SCREENS`
+model so changing menu order does not require editing every case.
 
 Run the default `air10-vauto` set:
 

@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${ROOT_DIR}/scripts/lib/airbreak_ui_model.sh"
 
 CASES_FILE="${AIRBREAK_PNG_REGRESSION_CASES_FILE:-${ROOT_DIR}/tests/png-regressions/cases.tsv}"
 FIRMWARES_FILE="${AIRBREAK_PNG_REGRESSION_FIRMWARES_FILE:-${ROOT_DIR}/tests/png-regressions/firmwares.tsv}"
@@ -42,8 +43,9 @@ declare -A FIRMWARE_PATHS=()
 declare -a FIRMWARE_IDS=()
 declare -A CASE_MAX_INSTRUCTIONS=()
 declare -A CASE_FRAME=()
-declare -A CASE_SEQUENCE=()
+declare -A CASE_TARGET=()
 declare -a CASE_IDS=()
+RUN_ONE_OUTCOME=""
 
 append_unique() {
   local value="$1"
@@ -89,17 +91,18 @@ load_firmwares() {
 }
 
 load_cases() {
-  local id max_instructions frame sequence
-  while IFS=$'\t' read -r id max_instructions frame sequence _; do
+  local id target max_instructions frame
+  while IFS=$'\t' read -r id target max_instructions frame _; do
     [[ -z "${id}" || "${id}" == \#* ]] && continue
-    if [[ -z "${max_instructions:-}" || -z "${frame:-}" ]]; then
+    if [[ -z "${target:-}" || -z "${max_instructions:-}" || -z "${frame:-}" ]]; then
       echo "png_regression=fail stage=config reason=bad_case_manifest case=${id} result=fail" >&2
       exit 2
     fi
+    airbreak_ui_screen_id "${target}" >/dev/null || exit $?
     CASE_IDS+=("${id}")
+    CASE_TARGET["${id}"]="${target}"
     CASE_MAX_INSTRUCTIONS["${id}"]="${max_instructions}"
     CASE_FRAME["${id}"]="${frame}"
-    CASE_SEQUENCE["${id}"]="${sequence:-}"
   done < "${CASES_FILE}"
 }
 
@@ -176,9 +179,10 @@ run_one() {
   local firmware_id="$1"
   local case_id="$2"
   local firmware_path="${FIRMWARE_PATHS[${firmware_id}]}"
+  local target="${CASE_TARGET[${case_id}]}"
   local max_instructions="${CASE_MAX_INSTRUCTIONS[${case_id}]}"
   local frame_relpath="${CASE_FRAME[${case_id}]}"
-  local sequence="${CASE_SEQUENCE[${case_id}]}"
+  local sequence=""
   local run_root="${OUT_DIR}/runs/${firmware_id}/${case_id}"
   local patched_fw="${OUT_DIR}/patched/${firmware_id}-${case_id}.bin"
   local log_path="${OUT_DIR}/logs/${firmware_id}-${case_id}.log"
@@ -187,10 +191,17 @@ run_one() {
   local diff_png="${OUT_DIR}/diffs/${firmware_id}-${case_id}.png"
   local status=0
   local compare_line=""
+  RUN_ONE_OUTCOME="run"
 
   if [[ ! -f "${firmware_path}" ]]; then
+    RUN_ONE_OUTCOME="skip"
     echo "png_regression=skip firmware=${firmware_id} case=${case_id} reason=missing_source path=${firmware_path} result=skip"
     [[ "${REQUIRE_FIRMWARE}" == "1" ]] && return 1
+    return 0
+  fi
+  if ! sequence="$(airbreak_ui_front_panel_sequence_for_target "${target}")"; then
+    RUN_ONE_OUTCOME="skip"
+    echo "png_regression=skip firmware=${firmware_id} case=${case_id} reason=target_not_enabled target=${target} ui_screens=${AIRBREAK_UI_SCREENS} result=skip"
     return 0
   fi
 
@@ -200,6 +211,7 @@ run_one() {
   set +e
   AIRBREAK_SOURCE_FIRMWARE="${firmware_path}" \
   AIRBREAK_PATCHED_FIRMWARE="${patched_fw}" \
+  AIRBREAK_UI_SCREENS="${AIRBREAK_UI_SCREENS}" \
   AIRBREAK_EMULATOR_MODE=headless \
   AIRBREAK_RUST_RUN_ID="png-regression-${firmware_id}-${case_id}" \
   AIRBREAK_RUST_RUN_ROOT="${run_root}" \
@@ -257,6 +269,10 @@ run_one() {
 
 load_firmwares
 load_cases
+if ! airbreak_ui_configure "$(airbreak_ui_default_screens)"; then
+  echo "png_regression=fail stage=config reason=invalid_ui_model result=fail" >&2
+  exit 2
+fi
 
 declare -a SELECTED_FIRMWARE_IDS=()
 declare -a SELECTED_CASE_IDS=()
@@ -276,7 +292,7 @@ SKIPPED=0
 for firmware_id in "${SELECTED_FIRMWARE_IDS[@]}"; do
   for case_id in "${SELECTED_CASE_IDS[@]}"; do
     if run_one "${firmware_id}" "${case_id}"; then
-      if [[ ! -f "${FIRMWARE_PATHS[${firmware_id}]}" ]]; then
+      if [[ "${RUN_ONE_OUTCOME}" == "skip" ]]; then
         SKIPPED=$((SKIPPED + 1))
       else
         RUN=$((RUN + 1))

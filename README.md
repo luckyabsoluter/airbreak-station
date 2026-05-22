@@ -63,9 +63,11 @@ The default selection runs the `air10-vauto` baselines. To refresh baselines aft
 AIRBREAK_PNG_REGRESSION_MODE=update ./scripts/run-png-regressions.sh
 ```
 
-Firmware and case manifests live under `tests/png-regressions/`. Runtime logs, captured actual PNGs, patched firmware, and
-diff PNGs are written under `artifacts/png-regressions/`, which is ignored by git. Use
-`AIRBREAK_PNG_REGRESSION_FIRMWARES=all` or `firmware-list` to run the same static PNG cases across the local firmware set.
+Firmware and case manifests live under `tests/png-regressions/`. Cases name UI targets such as `block_breaker`,
+`custom_about`, and `clinical_mode`; the runner derives the encoder sequence from the same `AIRBREAK_UI_SCREENS` model used
+by the patch pipeline. Runtime logs, captured actual PNGs, patched firmware, and diff PNGs are written under
+`artifacts/png-regressions/`, which is ignored by git. Use `AIRBREAK_PNG_REGRESSION_FIRMWARES=all` or `firmware-list` to run
+the same static PNG cases across the local firmware set.
 
 Patch only, without emulator:
 
@@ -140,6 +142,7 @@ resulting firmware should also be observable through the local emulator path.
 - `scripts/run-station-pipeline.sh`: reverse/patch/emulate orchestration entrypoint.
 - `scripts/run-png-regressions.sh`: static PNG baseline regression runner.
 - `scripts/run-gui*.sh`: emulator launch and regression wrappers.
+- `scripts/lib/airbreak_ui_model.sh`: shared AirBreak UI screen model and target navigation helpers.
 - `scripts/lib/rust_emulator_env.sh`: Rust STM32 emulator bootstrap using the vendored source tree.
 - `tests/png-regressions/`: per-firmware PNG regression manifests and committed baselines.
 - `rust/airbreak-f405.yaml.in`: AirBreak emulator config template.
