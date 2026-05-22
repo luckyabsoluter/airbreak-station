@@ -1,5 +1,5 @@
-# case_id	ui_target	max_instructions	frame_relpath	select_after
-block_breaker_entry	block_breaker	940000000	lcd-frame.png	-
-block_breaker_entry_immediate_select	block_breaker	940000000	lcd-frame.png	0
-custom_about	custom_about	940000000	front-panel-snapshots/after-encoder.png	-
-clinical_menu	clinical_mode	980000000	front-panel-snapshots/after-encoder.png	-
+# case_id	ui_target	max_instructions	frame_relpath	select_after	baseline_case
+block_breaker_entry	block_breaker	940000000	lcd-frame.png	-	-
+block_breaker_entry_immediate_select	block_breaker	940000000	lcd-frame.png	0	block_breaker_entry
+custom_about	custom_about	940000000	front-panel-snapshots/after-encoder.png	-	-
+clinical_menu	clinical_mode	980000000	front-panel-snapshots/after-encoder.png	-	-

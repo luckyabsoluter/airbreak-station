@@ -45,6 +45,7 @@ declare -A CASE_MAX_INSTRUCTIONS=()
 declare -A CASE_FRAME=()
 declare -A CASE_TARGET=()
 declare -A CASE_SELECT_AFTER=()
+declare -A CASE_BASELINE=()
 declare -a CASE_IDS=()
 RUN_ONE_OUTCOME=""
 
@@ -92,8 +93,8 @@ load_firmwares() {
 }
 
 load_cases() {
-  local id target max_instructions frame select_after
-  while IFS=$'\t' read -r id target max_instructions frame select_after _; do
+  local id target max_instructions frame select_after baseline_case
+  while IFS=$'\t' read -r id target max_instructions frame select_after baseline_case _; do
     [[ -z "${id}" || "${id}" == \#* ]] && continue
     if [[ -z "${target:-}" || -z "${max_instructions:-}" || -z "${frame:-}" ]]; then
       echo "png_regression=fail stage=config reason=bad_case_manifest case=${id} result=fail" >&2
@@ -109,7 +110,20 @@ load_cases() {
     CASE_MAX_INSTRUCTIONS["${id}"]="${max_instructions}"
     CASE_FRAME["${id}"]="${frame}"
     CASE_SELECT_AFTER["${id}"]="${select_after:-}"
+    CASE_BASELINE["${id}"]="${baseline_case:-}"
   done < "${CASES_FILE}"
+}
+
+validate_case_baselines() {
+  local id baseline_case
+  for id in "${CASE_IDS[@]}"; do
+    baseline_case="${CASE_BASELINE[${id}]:-}"
+    [[ -z "${baseline_case}" || "${baseline_case}" == "-" ]] && continue
+    if [[ -z "${CASE_MAX_INSTRUCTIONS[${baseline_case}]:-}" ]]; then
+      echo "png_regression=fail stage=config reason=unknown_baseline_case case=${id} baseline_case=${baseline_case} result=fail" >&2
+      exit 2
+    fi
+  done
 }
 
 select_firmwares() {
@@ -184,6 +198,7 @@ select_cases() {
 run_one() {
   local firmware_id="$1"
   local case_id="$2"
+  local baseline_case="${CASE_BASELINE[${case_id}]:-}"
   local firmware_path="${FIRMWARE_PATHS[${firmware_id}]}"
   local target="${CASE_TARGET[${case_id}]}"
   local max_instructions="${CASE_MAX_INSTRUCTIONS[${case_id}]}"
@@ -195,7 +210,10 @@ run_one() {
   local patched_fw="${OUT_DIR}/patched/${firmware_id}-${case_id}.bin"
   local log_path="${OUT_DIR}/logs/${firmware_id}-${case_id}.log"
   local actual_png="${run_root}/${frame_relpath}"
-  local baseline_png="${BASELINE_DIR}/${firmware_id}/${case_id}.png"
+  if [[ -z "${baseline_case}" || "${baseline_case}" == "-" ]]; then
+    baseline_case="${case_id}"
+  fi
+  local baseline_png="${BASELINE_DIR}/${firmware_id}/${baseline_case}.png"
   local diff_png="${OUT_DIR}/diffs/${firmware_id}-${case_id}.png"
   local status=0
   local compare_line=""
@@ -246,10 +264,18 @@ run_one() {
   fi
 
   if [[ "${MODE}" == "update" ]]; then
-    mkdir -p "$(dirname "${baseline_png}")"
-    cp -- "${actual_png}" "${baseline_png}"
-    echo "png_regression=pass firmware=${firmware_id} case=${case_id} mode=update baseline=${baseline_png} actual=${actual_png} result=pass"
-    return 0
+    if [[ "${baseline_case}" != "${case_id}" ]]; then
+      if [[ ! -f "${baseline_png}" ]]; then
+        echo "png_regression=fail firmware=${firmware_id} case=${case_id} stage=compare reason=missing_shared_baseline baseline_case=${baseline_case} baseline=${baseline_png} actual=${actual_png} log=${log_path} result=fail"
+        return 1
+      fi
+      echo "png_regression=info firmware=${firmware_id} case=${case_id} mode=update baseline_case=${baseline_case} action=compare_shared_baseline result=info"
+    else
+      mkdir -p "$(dirname "${baseline_png}")"
+      cp -- "${actual_png}" "${baseline_png}"
+      echo "png_regression=pass firmware=${firmware_id} case=${case_id} mode=update baseline=${baseline_png} actual=${actual_png} result=pass"
+      return 0
+    fi
   fi
 
   if [[ ! -f "${baseline_png}" ]]; then
@@ -276,12 +302,13 @@ run_one() {
   fi
 
   rm -f -- "${diff_png}"
-  echo "png_regression=pass firmware=${firmware_id} case=${case_id} mode=test baseline=${baseline_png} actual=${actual_png} log=${log_path} result=pass"
+  echo "png_regression=pass firmware=${firmware_id} case=${case_id} mode=${MODE} baseline=${baseline_png} actual=${actual_png} log=${log_path} result=pass"
   return 0
 }
 
 load_firmwares
 load_cases
+validate_case_baselines
 if ! airbreak_ui_configure "$(airbreak_ui_default_screens)"; then
   echo "png_regression=fail stage=config reason=invalid_ui_model result=fail" >&2
   exit 2
