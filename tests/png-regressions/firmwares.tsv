@@ -1,0 +1,18 @@
+# firmware_id	relative_or_absolute_path
+air10-autoset	firmware/resmed-air10-autoset.bin
+air10-elite	firmware/resmed-air10-elite.bin
+air10-for-her	firmware/resmed-air10-for-her.bin
+air10-vauto	firmware/resmed-air10-vauto.bin
+aircurve-37043-SX567-0305	firmware/firmware-list/firmware-aircurve-37043-SX567-0305.bin
+aircurve-37051-SX567-0302	firmware/firmware-list/firmware-aircurve-37051-SX567-0302.bin
+aircurve-37051-SX567-0401	firmware/firmware-list/firmware-aircurve-37051-SX567-0401.bin
+airsense-37028-SX567-0306	firmware/firmware-list/firmware-airsense-37028-SX567-0306.bin
+airsense-37028-SX567-0401	firmware/firmware-list/firmware-airsense-37028-SX567-0401.bin
+airsense-37031-0305	firmware/firmware-list/firmware-airsense-37031-0305.bin
+airsense-37032-SX567-0305	firmware/firmware-list/firmware-airsense-37032-SX567-0305.bin
+airsense-37033-SX567-0305	firmware/firmware-list/firmware-airsense-37033-SX567-0305.bin
+airsense-37090-SX567-0401	firmware/firmware-list/firmware-airsense-37090-SX567-0401.bin
+airsense-37101-SX567-0401	firmware/firmware-list/firmware-airsense-37101-SX567-0401.bin
+airsense10-37031-0305	firmware/firmware-list/firmware-airsense10-37031-0305.bin
+airsenseForHer-SX567-0401	firmware/firmware-list/firmware-airsenseForHer-SX567-0401.bin
+airsnse-37117-SX567-0401	firmware/firmware-list/firmware-airsnse-37117-SX567-0401.bin
