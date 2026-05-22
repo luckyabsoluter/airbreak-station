@@ -84,7 +84,9 @@ AIRBREAK_CLINICAL_LABEL="Clinical Mode" \
 AIRBREAK_EMULATE=0 ./scripts/run-station-pipeline.sh
 ```
 
-AirBreak UI screens are selected as a model, not by editing individual hook sites. The default model is:
+AirBreak UI screens are selected as a model, not by editing individual hook sites. The runner converts this list into the payload's
+`AIRBREAK_UI_SCREEN_MODEL_COUNT` and `AIRBREAK_UI_SCREEN_MODEL_INIT` defines, so adding or removing a screen does not require
+row-position edits in the firmware patch. The default model is:
 
 ```bash
 AIRBREAK_UI_SCREENS=block_breaker,custom_about,clinical_mode
@@ -120,7 +122,7 @@ The active patch hooks the rendered My Options pages used by both `Essentials=On
 - payload: `patches/templates/my_options_essentials_mask_fit_patch.c`
 - CRC: all three firmware CRC segments are recomputed and verified
 
-The payload preserves the original lower My Options append, constructs stock navigation rows, and appends them
+The payload preserves the original lower My Options append, constructs AirBreak navigation rows from the screen model, and appends them
 while there is spare capacity. The row order comes from the AirBreak UI model. In the default model, Block Breaker is placed
 above Custom About, Custom About is placed directly above Clinical Mode, and Clinical Mode is the last item in the visible
 default and `Essentials=Plus` expanded My Options lists.

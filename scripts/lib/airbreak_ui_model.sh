@@ -41,6 +41,8 @@ airbreak_ui_configure() {
   local screens="${1:-$(airbreak_ui_default_screens)}"
   local screen
   local seen=","
+  local screen_id
+  local model_init=""
 
   AIRBREAK_UI_SCREENS="${screens//[[:space:]]/}"
   IFS=',' read -r -a AIRBREAK_UI_SCREEN_LIST <<< "${AIRBREAK_UI_SCREENS}"
@@ -49,14 +51,13 @@ airbreak_ui_configure() {
     echo "airbreak_ui=fail reason=empty_ui_screens result=fail" >&2
     return 1
   fi
-  if [[ "${#AIRBREAK_UI_SCREEN_LIST[@]}" -gt 3 ]]; then
-    echo "airbreak_ui=fail reason=too_many_ui_screens screens=${AIRBREAK_UI_SCREENS} result=fail" >&2
-    return 1
-  fi
 
   for screen in "${AIRBREAK_UI_SCREEN_LIST[@]}"; do
-    [[ -z "${screen}" ]] && continue
-    airbreak_ui_screen_id "${screen}" >/dev/null || return $?
+    if [[ -z "${screen}" ]]; then
+      echo "airbreak_ui=fail reason=empty_ui_screen_entry screens=${AIRBREAK_UI_SCREENS} result=fail" >&2
+      return 1
+    fi
+    screen_id="$(airbreak_ui_screen_id "${screen}")" || return $?
     case "${seen}" in
       *",${screen},"*)
         echo "airbreak_ui=fail reason=duplicate_ui_screen screen=${screen} result=fail" >&2
@@ -64,27 +65,27 @@ airbreak_ui_configure() {
         ;;
     esac
     seen="${seen}${screen},"
+    if [[ -n "${model_init}" ]]; then
+      model_init="${model_init},"
+    fi
+    model_init="${model_init}${screen_id}u"
   done
 
-  AIRBREAK_UI_SLOT0="$(airbreak_ui_screen_id "${AIRBREAK_UI_SCREEN_LIST[0]:-}")" || return $?
-  AIRBREAK_UI_SLOT1="$(airbreak_ui_screen_id "${AIRBREAK_UI_SCREEN_LIST[1]:-}")" || return $?
-  AIRBREAK_UI_SLOT2="$(airbreak_ui_screen_id "${AIRBREAK_UI_SCREEN_LIST[2]:-}")" || return $?
+  AIRBREAK_UI_SCREEN_MODEL_COUNT="${#AIRBREAK_UI_SCREEN_LIST[@]}u"
+  AIRBREAK_UI_SCREEN_MODEL_INIT="${model_init}"
 
   AIRBREAK_UI_HAS_BLOCK_BREAKER=0
   AIRBREAK_UI_HAS_CUSTOM_ABOUT=0
   AIRBREAK_UI_HAS_CLINICAL_MODE=0
-  AIRBREAK_UI_ROW_COUNT=0
+  AIRBREAK_UI_ROW_COUNT="${#AIRBREAK_UI_SCREEN_LIST[@]}"
   if airbreak_ui_screen_enabled block_breaker; then
     AIRBREAK_UI_HAS_BLOCK_BREAKER=1
-    AIRBREAK_UI_ROW_COUNT=$((AIRBREAK_UI_ROW_COUNT + 1))
   fi
   if airbreak_ui_screen_enabled custom_about; then
     AIRBREAK_UI_HAS_CUSTOM_ABOUT=1
-    AIRBREAK_UI_ROW_COUNT=$((AIRBREAK_UI_ROW_COUNT + 1))
   fi
   if airbreak_ui_screen_enabled clinical_mode; then
     AIRBREAK_UI_HAS_CLINICAL_MODE=1
-    AIRBREAK_UI_ROW_COUNT=$((AIRBREAK_UI_ROW_COUNT + 1))
   fi
 }
 

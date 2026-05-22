@@ -13,14 +13,14 @@
 #define AIRBREAK_UI_SCREEN_BLOCK_BREAKER_ID 1
 #define AIRBREAK_UI_SCREEN_CUSTOM_ABOUT_ID 2
 #define AIRBREAK_UI_SCREEN_CLINICAL_MODE_ID 3
-#ifndef AIRBREAK_UI_SLOT0
-#define AIRBREAK_UI_SLOT0 AIRBREAK_UI_SCREEN_BLOCK_BREAKER_ID
+#ifndef AIRBREAK_UI_SCREEN_MODEL_COUNT
+#define AIRBREAK_UI_SCREEN_MODEL_COUNT 3u
 #endif
-#ifndef AIRBREAK_UI_SLOT1
-#define AIRBREAK_UI_SLOT1 AIRBREAK_UI_SCREEN_CUSTOM_ABOUT_ID
-#endif
-#ifndef AIRBREAK_UI_SLOT2
-#define AIRBREAK_UI_SLOT2 AIRBREAK_UI_SCREEN_CLINICAL_MODE_ID
+#ifndef AIRBREAK_UI_SCREEN_MODEL_INIT
+#define AIRBREAK_UI_SCREEN_MODEL_INIT \
+    AIRBREAK_UI_SCREEN_BLOCK_BREAKER_ID, \
+    AIRBREAK_UI_SCREEN_CUSTOM_ABOUT_ID, \
+    AIRBREAK_UI_SCREEN_CLINICAL_MODE_ID
 #endif
 
 /*
@@ -67,6 +67,7 @@
 #define EVENT_PAGE_ROW 0x01BDu
 #define EVENT_SELECTED_ROW 0x01BFu
 #define AIRBREAK_CUSTOM_ABOUT_RETURN_STATE_ADDR 0x2001FFF0u
+#define AIRBREAK_CUSTOM_PAGE_BACK_ROW_ADDR 0x2001FC98u
 #define AIRBREAK_CUSTOM_PAGE_MENU_ADDR 0x2001FC9Cu
 #define AIRBREAK_BLOCK_BREAKER_RETURN_STATE_ADDR 0x2001FCA0u
 #define AIRBREAK_BLOCK_BREAKER_STATE_ADDR 0x2001FCA4u
@@ -101,6 +102,7 @@
 #define BLOCK_BREAKER_CMD_LEFT 1u
 #define BLOCK_BREAKER_CMD_RIGHT 2u
 #define BLOCK_BREAKER_CMD_FIRE 3u
+#define CUSTOM_PAGE_STOCK_BACK_ROW_COUNT 1u
 #define CUSTOM_PAGE_VISIBLE_CUSTOM_COUNT 2u
 #define CUSTOM_PAGE_VISIBLE_BLOCK_BREAKER_COUNT 0u
 #define BLOCK_BREAKER_TICK_DIVISOR 0x20000u
@@ -143,7 +145,6 @@
 
 typedef uint32_t (*fn_alloc_t)(uint32_t size);
 typedef uint32_t (*fn_menu_append_t)(uint32_t menu_obj, uint32_t item_obj, uint32_t p3, uint32_t p4);
-typedef uint32_t (*fn_nav_action_ctor_t)(uint32_t action_obj, uint32_t page_index, uint32_t page_row);
 typedef uint32_t (*fn_nav_row_ctor_t)(uint32_t item_obj, uint32_t label_id, uint32_t flags, uint32_t action_obj, uint32_t style);
 typedef uint32_t (*fn_simple_text_row_ctor_t)(uint32_t item_obj, uint32_t label_id);
 typedef uint32_t (*fn_event_get_t)(uint32_t event_id);
@@ -157,19 +158,6 @@ enum airbreak_screen_id {
     AIRBREAK_SCREEN_BLOCK_BREAKER = AIRBREAK_UI_SCREEN_BLOCK_BREAKER_ID,
 };
 
-enum airbreak_row_action_kind {
-    AIRBREAK_ROW_ACTION_SCREEN = 1u,
-    AIRBREAK_ROW_ACTION_STOCK_PAGE = 2u,
-};
-
-struct airbreak_menu_row {
-    uint32_t action_kind;
-    uint32_t label_id;
-    uint32_t page_index;
-    uint32_t page_row;
-    const fn_action_vfunc_t *action_vtable;
-};
-
 static uint32_t normalize_my_options_return_page(uint32_t return_page);
 static void block_breaker_copy_text(uint32_t dst_addr, const char *src);
 static void copy_custom_about_detail_to_status(void);
@@ -180,6 +168,7 @@ static uint32_t block_breaker_page_index_for_state(uint32_t state);
 static void airbreak_render_active_page_text(void);
 static uint32_t airbreak_active_screen(void);
 static uint32_t airbreak_active_page_visible_count(void);
+static uint32_t airbreak_active_page_stock_visible_count(void);
 static void airbreak_request_active_screen_frame(void);
 static void block_breaker_draw_full_frame(uint32_t state);
 static void block_breaker_request_frame_draw(void);
@@ -1148,6 +1137,15 @@ static uint32_t airbreak_active_page_visible_count(void) {
     return CUSTOM_PAGE_VISIBLE_CUSTOM_COUNT;
 }
 
+static uint32_t airbreak_active_page_stock_visible_count(void) {
+#if AIRBREAK_UI_HAS_BLOCK_BREAKER
+    if (airbreak_active_screen() == AIRBREAK_SCREEN_BLOCK_BREAKER) {
+        return CUSTOM_PAGE_VISIBLE_BLOCK_BREAKER_COUNT;
+    }
+#endif
+    return CUSTOM_PAGE_STOCK_BACK_ROW_COUNT;
+}
+
 static void airbreak_render_active_page_text(void) {
 #if AIRBREAK_UI_HAS_BLOCK_BREAKER
     uint32_t state = *(volatile uint32_t *)AIRBREAK_BLOCK_BREAKER_STATE_ADDR;
@@ -1257,82 +1255,8 @@ static const fn_action_vfunc_t BLOCK_BREAKER_BACK_ACTION_VTABLE[4] = {
 };
 #endif
 
-static const struct airbreak_menu_row AIRBREAK_MY_OPTIONS_ROWS[] = {
-#if AIRBREAK_UI_SLOT0 == AIRBREAK_UI_SCREEN_BLOCK_BREAKER_ID && AIRBREAK_UI_HAS_BLOCK_BREAKER
-    {
-        AIRBREAK_ROW_ACTION_SCREEN,
-        BLOCK_BREAKER_LABEL_ID,
-        0u,
-        0u,
-        BLOCK_BREAKER_ENTRY_ACTION_VTABLE,
-    },
-#elif AIRBREAK_UI_SLOT0 == AIRBREAK_UI_SCREEN_CUSTOM_ABOUT_ID && AIRBREAK_UI_HAS_CUSTOM_ABOUT
-    {
-        AIRBREAK_ROW_ACTION_SCREEN,
-        CUSTOM_ABOUT_LABEL_ID,
-        0u,
-        0u,
-        CUSTOM_ABOUT_ENTRY_ACTION_VTABLE,
-    },
-#elif AIRBREAK_UI_SLOT0 == AIRBREAK_UI_SCREEN_CLINICAL_MODE_ID && AIRBREAK_UI_HAS_CLINICAL_MODE
-    {
-        AIRBREAK_ROW_ACTION_SCREEN,
-        CLINICAL_MODE_LABEL_ID,
-        0u,
-        0u,
-        CLINICAL_MODE_ENTRY_ACTION_VTABLE,
-    },
-#endif
-#if AIRBREAK_UI_SLOT1 == AIRBREAK_UI_SCREEN_BLOCK_BREAKER_ID && AIRBREAK_UI_HAS_BLOCK_BREAKER
-    {
-        AIRBREAK_ROW_ACTION_SCREEN,
-        BLOCK_BREAKER_LABEL_ID,
-        0u,
-        0u,
-        BLOCK_BREAKER_ENTRY_ACTION_VTABLE,
-    },
-#elif AIRBREAK_UI_SLOT1 == AIRBREAK_UI_SCREEN_CUSTOM_ABOUT_ID && AIRBREAK_UI_HAS_CUSTOM_ABOUT
-    {
-        AIRBREAK_ROW_ACTION_SCREEN,
-        CUSTOM_ABOUT_LABEL_ID,
-        0u,
-        0u,
-        CUSTOM_ABOUT_ENTRY_ACTION_VTABLE,
-    },
-#elif AIRBREAK_UI_SLOT1 == AIRBREAK_UI_SCREEN_CLINICAL_MODE_ID && AIRBREAK_UI_HAS_CLINICAL_MODE
-    {
-        AIRBREAK_ROW_ACTION_SCREEN,
-        CLINICAL_MODE_LABEL_ID,
-        0u,
-        0u,
-        CLINICAL_MODE_ENTRY_ACTION_VTABLE,
-    },
-#endif
-#if AIRBREAK_UI_SLOT2 == AIRBREAK_UI_SCREEN_BLOCK_BREAKER_ID && AIRBREAK_UI_HAS_BLOCK_BREAKER
-    {
-        AIRBREAK_ROW_ACTION_SCREEN,
-        BLOCK_BREAKER_LABEL_ID,
-        0u,
-        0u,
-        BLOCK_BREAKER_ENTRY_ACTION_VTABLE,
-    },
-#elif AIRBREAK_UI_SLOT2 == AIRBREAK_UI_SCREEN_CUSTOM_ABOUT_ID && AIRBREAK_UI_HAS_CUSTOM_ABOUT
-    {
-        AIRBREAK_ROW_ACTION_SCREEN,
-        CUSTOM_ABOUT_LABEL_ID,
-        0u,
-        0u,
-        CUSTOM_ABOUT_ENTRY_ACTION_VTABLE,
-    },
-#elif AIRBREAK_UI_SLOT2 == AIRBREAK_UI_SCREEN_CLINICAL_MODE_ID && AIRBREAK_UI_HAS_CLINICAL_MODE
-    {
-        AIRBREAK_ROW_ACTION_SCREEN,
-        CLINICAL_MODE_LABEL_ID,
-        0u,
-        0u,
-        CLINICAL_MODE_ENTRY_ACTION_VTABLE,
-    },
-#endif
+static const uint32_t AIRBREAK_UI_SCREEN_MODEL[AIRBREAK_UI_SCREEN_MODEL_COUNT] = {
+    AIRBREAK_UI_SCREEN_MODEL_INIT,
 };
 
 static uint32_t menu_has_room(uint32_t menu_obj) {
@@ -1377,52 +1301,6 @@ static uint32_t custom_about_return_page_for_current_context(uint32_t hook_retur
     }
 
     return RETURN_PAGE_COMPACT_MY_OPTIONS;
-}
-
-__attribute__((used, noinline))
-static uint32_t append_nav_row_if_room(
-    fn_alloc_t alloc_fn,
-    fn_menu_append_t menu_append_fn,
-    fn_nav_action_ctor_t nav_action_ctor_fn,
-    fn_nav_row_ctor_t nav_row_ctor_fn,
-    uint32_t menu_obj,
-    uint32_t p3,
-    uint32_t p4,
-    uint32_t label_id,
-    uint32_t page_index,
-    uint32_t page_row
-) {
-    uint32_t nav_action;
-    uint32_t item_obj;
-
-    if (!menu_has_room(menu_obj)) {
-        return 0u;
-    }
-
-    nav_action = alloc_fn(NAV_ACTION_ALLOC_SIZE);
-    if (nav_action == 0u) {
-        return 0u;
-    }
-    nav_action = nav_action_ctor_fn(nav_action, page_index, page_row);
-
-    item_obj = alloc_fn(NAV_ROW_ALLOC_SIZE);
-    if (item_obj == 0u) {
-        return 0u;
-    }
-
-    item_obj = nav_row_ctor_fn(
-        item_obj,
-        label_id,
-        0u,
-        nav_action,
-        NAV_ROW_STYLE
-    );
-    if (item_obj == 0u) {
-        return 0u;
-    }
-
-    menu_append_fn(menu_obj, item_obj, p3, p4);
-    return 1u;
 }
 
 __attribute__((used, noinline))
@@ -1472,6 +1350,64 @@ static uint32_t append_airbreak_screen_row_if_room(
     return 1u;
 }
 
+static uint32_t append_airbreak_model_screen_if_room(
+    fn_alloc_t alloc_fn,
+    fn_menu_append_t menu_append_fn,
+    fn_nav_row_ctor_t nav_row_ctor_fn,
+    uint32_t menu_obj,
+    uint32_t p3,
+    uint32_t p4,
+    uint32_t screen_id,
+    uint32_t return_page
+) {
+    switch (screen_id) {
+#if AIRBREAK_UI_HAS_BLOCK_BREAKER
+    case AIRBREAK_UI_SCREEN_BLOCK_BREAKER_ID:
+        return append_airbreak_screen_row_if_room(
+            alloc_fn,
+            menu_append_fn,
+            nav_row_ctor_fn,
+            menu_obj,
+            p3,
+            p4,
+            BLOCK_BREAKER_LABEL_ID,
+            BLOCK_BREAKER_ENTRY_ACTION_VTABLE,
+            return_page
+        );
+#endif
+#if AIRBREAK_UI_HAS_CUSTOM_ABOUT
+    case AIRBREAK_UI_SCREEN_CUSTOM_ABOUT_ID:
+        return append_airbreak_screen_row_if_room(
+            alloc_fn,
+            menu_append_fn,
+            nav_row_ctor_fn,
+            menu_obj,
+            p3,
+            p4,
+            CUSTOM_ABOUT_LABEL_ID,
+            CUSTOM_ABOUT_ENTRY_ACTION_VTABLE,
+            return_page
+        );
+#endif
+#if AIRBREAK_UI_HAS_CLINICAL_MODE
+    case AIRBREAK_UI_SCREEN_CLINICAL_MODE_ID:
+        return append_airbreak_screen_row_if_room(
+            alloc_fn,
+            menu_append_fn,
+            nav_row_ctor_fn,
+            menu_obj,
+            p3,
+            p4,
+            CLINICAL_MODE_LABEL_ID,
+            CLINICAL_MODE_ENTRY_ACTION_VTABLE,
+            return_page
+        );
+#endif
+    default:
+        return 0u;
+    }
+}
+
 __attribute__((used, noinline))
 static uint32_t append_simple_text_row_if_room(
     fn_alloc_t alloc_fn,
@@ -1502,26 +1438,14 @@ static uint32_t append_simple_text_row_if_room(
     return 1u;
 }
 
-static void install_first_row_back_action(uint32_t menu_obj, const fn_action_vfunc_t *vtable) {
-    uint32_t items_obj;
-    uint32_t back_row;
+static void install_nav_row_action(uint32_t row_obj, const fn_action_vfunc_t *vtable) {
     uint32_t back_action;
 
-    if (*(uint32_t *)(menu_obj + MENU_COUNT_OFF) == 0u) {
+    if (row_obj == 0u) {
         return;
     }
 
-    items_obj = *(uint32_t *)(menu_obj + MENU_ITEMS_OFF);
-    if (items_obj == 0u) {
-        return;
-    }
-
-    back_row = *(uint32_t *)items_obj;
-    if (back_row == 0u) {
-        return;
-    }
-
-    back_action = *(uint32_t *)(back_row + NAV_ROW_ACTION_OFF);
+    back_action = *(uint32_t *)(row_obj + NAV_ROW_ACTION_OFF);
     if (back_action == 0u) {
         return;
     }
@@ -1529,18 +1453,18 @@ static void install_first_row_back_action(uint32_t menu_obj, const fn_action_vfu
     *(uint32_t *)back_action = (uint32_t)(uintptr_t)vtable;
 }
 
-static void install_custom_about_back_action(uint32_t menu_obj) {
-    install_first_row_back_action(menu_obj, CUSTOM_ABOUT_BACK_ACTION_VTABLE);
+static void install_custom_about_back_action(uint32_t back_row) {
+    install_nav_row_action(back_row, CUSTOM_ABOUT_BACK_ACTION_VTABLE);
 }
 
-static void install_airbreak_active_back_action(uint32_t menu_obj) {
+static void install_airbreak_active_back_action(uint32_t back_row) {
 #if AIRBREAK_UI_HAS_BLOCK_BREAKER
     if (airbreak_active_screen() == AIRBREAK_SCREEN_BLOCK_BREAKER) {
-        install_first_row_back_action(menu_obj, BLOCK_BREAKER_BACK_ACTION_VTABLE);
+        install_nav_row_action(back_row, BLOCK_BREAKER_BACK_ACTION_VTABLE);
         return;
     }
 #endif
-    install_custom_about_back_action(menu_obj);
+    install_custom_about_back_action(back_row);
 }
 
 __attribute__((used, section(".patch_target_fn"), noinline))
@@ -1553,16 +1477,15 @@ uint32_t patch_my_options_essentials_append_hook(
     uint32_t hook_return_addr = (uint32_t)(uintptr_t)__builtin_return_address(0);
     fn_alloc_t alloc_fn = (fn_alloc_t)(ADDR_ALLOC | 1u);
     fn_menu_append_t menu_append_fn = (fn_menu_append_t)(ADDR_MENU_APPEND | 1u);
-    fn_nav_action_ctor_t nav_action_ctor_fn = (fn_nav_action_ctor_t)(ADDR_NAV_ACTION_CTOR | 1u);
     fn_nav_row_ctor_t nav_row_ctor_fn = (fn_nav_row_ctor_t)(ADDR_NAV_ROW_CTOR | 1u);
 
     uint32_t custom_about_return_page =
         custom_about_return_page_for_current_context(hook_return_addr);
     uint32_t append_ret;
     volatile uint32_t append_status;
-    uint32_t row_index;
-    uint32_t row_count =
-        (uint32_t)(sizeof(AIRBREAK_MY_OPTIONS_ROWS) / sizeof(AIRBREAK_MY_OPTIONS_ROWS[0]));
+    uint32_t screen_index;
+    uint32_t screen_count =
+        (uint32_t)(sizeof(AIRBREAK_UI_SCREEN_MODEL) / sizeof(AIRBREAK_UI_SCREEN_MODEL[0]));
 
     append_ret = menu_append_fn(menu_obj, original_item, p3, p4);
 
@@ -1570,34 +1493,17 @@ uint32_t patch_my_options_essentials_append_hook(
         return append_ret;
     }
 
-    for (row_index = 0u; row_index < row_count; row_index++) {
-        const struct airbreak_menu_row *row = &AIRBREAK_MY_OPTIONS_ROWS[row_index];
-        if (row->action_kind == AIRBREAK_ROW_ACTION_SCREEN) {
-            append_status = append_airbreak_screen_row_if_room(
-                alloc_fn,
-                menu_append_fn,
-                nav_row_ctor_fn,
-                menu_obj,
-                p3,
-                p4,
-                row->label_id,
-                row->action_vtable,
-                custom_about_return_page
-            );
-        } else {
-            append_status = append_nav_row_if_room(
-                alloc_fn,
-                menu_append_fn,
-                nav_action_ctor_fn,
-                nav_row_ctor_fn,
-                menu_obj,
-                p3,
-                p4,
-                row->label_id,
-                row->page_index,
-                row->page_row
-            );
-        }
+    for (screen_index = 0u; screen_index < screen_count; screen_index++) {
+        append_status = append_airbreak_model_screen_if_room(
+            alloc_fn,
+            menu_append_fn,
+            nav_row_ctor_fn,
+            menu_obj,
+            p3,
+            p4,
+            AIRBREAK_UI_SCREEN_MODEL[screen_index],
+            custom_about_return_page
+        );
     }
     (void)append_status;
     return append_ret;
@@ -1616,6 +1522,7 @@ uint32_t patch_custom_about_page_seed_hook(
     fn_simple_text_row_ctor_t simple_text_row_ctor_fn =
         (fn_simple_text_row_ctor_t)(ADDR_SIMPLE_TEXT_ROW_CTOR | 1u);
     uint32_t active_screen = airbreak_active_screen();
+    uint32_t stock_count = airbreak_active_page_stock_visible_count();
     uint32_t append_ret;
     volatile uint32_t append_status;
 
@@ -1625,13 +1532,12 @@ uint32_t patch_custom_about_page_seed_hook(
         return append_ret;
     }
 
-    install_airbreak_active_back_action(menu_obj);
+    *(volatile uint32_t *)AIRBREAK_CUSTOM_PAGE_BACK_ROW_ADDR = original_item;
+    install_airbreak_active_back_action(original_item);
     *(volatile uint32_t *)AIRBREAK_CUSTOM_PAGE_MENU_ADDR = menu_obj;
 
-    if (active_screen == AIRBREAK_SCREEN_BLOCK_BREAKER) {
-        *(uint32_t *)(menu_obj + MENU_COUNT_OFF) = airbreak_active_page_visible_count();
-    } else if (*(uint32_t *)(menu_obj + MENU_COUNT_OFF) > 1u) {
-        *(uint32_t *)(menu_obj + MENU_COUNT_OFF) = 1u;
+    if (*(uint32_t *)(menu_obj + MENU_COUNT_OFF) > stock_count) {
+        *(uint32_t *)(menu_obj + MENU_COUNT_OFF) = stock_count;
     }
 
     airbreak_render_active_page_text();
@@ -1668,7 +1574,9 @@ uint32_t patch_custom_about_page_tail_hook(
     }
 
     *(volatile uint32_t *)AIRBREAK_CUSTOM_PAGE_MENU_ADDR = menu_obj;
-    install_airbreak_active_back_action(menu_obj);
+    install_airbreak_active_back_action(
+        *(volatile uint32_t *)AIRBREAK_CUSTOM_PAGE_BACK_ROW_ADDR
+    );
     airbreak_render_active_page_text();
     custom_page_set_visible_count(airbreak_active_page_visible_count());
     if (active_screen == AIRBREAK_SCREEN_BLOCK_BREAKER) {
