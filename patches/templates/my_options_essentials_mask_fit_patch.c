@@ -78,6 +78,7 @@
 #define AIRBREAK_BLOCK_BREAKER_TICK_COUNTER_ADDR 0x2001FCB8u
 #define AIRBREAK_BLOCK_BREAKER_PREV_STATE_ADDR 0x2001FCBCu
 #define AIRBREAK_BLOCK_BREAKER_BLOCKS_ADDR 0x2001FCC0u
+#define AIRBREAK_BLOCK_BREAKER_INPUT_DRAIN_ADDR 0x2001FCC4u
 #define AIRBREAK_CUSTOM_PAGE_TITLE_TEXT_ADDR 0x2001FCE0u
 #define AIRBREAK_BLOCK_BREAKER_STATUS_TEXT_ADDR 0x2001FD00u
 #define AIRBREAK_BLOCK_BREAKER_ROW0_TEXT_ADDR 0x2001FD20u
@@ -109,6 +110,7 @@
 #define BLOCK_BREAKER_INITIAL_BLOCKS 0x0003FFFFu
 #define BLOCK_BREAKER_ENCODER_ACC_NEUTRAL 4u
 #define BLOCK_BREAKER_ENCODER_ACC_MAX 8u
+#define BLOCK_BREAKER_ENTRY_INPUT_DRAIN_FRAMES 8u
 #define ROTARY_COUNT_OFF 4u
 #define ROTARY_DIRECTION_OFF 20u
 #define ROTARY_CHANGED_OFF 28u
@@ -262,6 +264,7 @@ static void block_breaker_clear_runtime_state(void) {
     *(volatile uint32_t *)AIRBREAK_BLOCK_BREAKER_TICK_COUNTER_ADDR = 0u;
     *(volatile uint32_t *)AIRBREAK_BLOCK_BREAKER_PREV_STATE_ADDR = 0u;
     *(volatile uint32_t *)AIRBREAK_BLOCK_BREAKER_BLOCKS_ADDR = 0u;
+    *(volatile uint32_t *)AIRBREAK_BLOCK_BREAKER_INPUT_DRAIN_ADDR = 0u;
 }
 
 static void block_breaker_release_rotary_provider_to_ui(void) {
@@ -781,6 +784,16 @@ static void block_breaker_clear_rotary_provider(void) {
     *(volatile uint8_t *)(obj + ROTARY_PENDING_OFF) = 0u;
 }
 
+static uint32_t block_breaker_rotary_provider_has_input(void) {
+    uint32_t obj = AIRBREAK_ROTARY_PROVIDER_ADDR;
+    int16_t count = *(volatile int16_t *)(obj + ROTARY_COUNT_OFF);
+    uint32_t direction = *(volatile uint8_t *)(obj + ROTARY_DIRECTION_OFF);
+    uint32_t changed = *(volatile uint8_t *)(obj + ROTARY_CHANGED_OFF);
+    uint32_t pending = *(volatile uint8_t *)(obj + ROTARY_PENDING_OFF);
+
+    return count != 0 || direction != 0u || changed != 0u || pending != 0u;
+}
+
 static uint32_t block_breaker_rotary_provider_command(void) {
     uint32_t obj = AIRBREAK_ROTARY_PROVIDER_ADDR;
     int16_t count = *(volatile int16_t *)(obj + ROTARY_COUNT_OFF);
@@ -861,6 +874,7 @@ static uint32_t block_breaker_post_render_wait_active(uint32_t wait_base, uint32
     volatile uint32_t *render_count = (volatile uint32_t *)AIRBREAK_BLOCK_BREAKER_RENDER_COUNT_ADDR;
     volatile uint32_t *input_state = (volatile uint32_t *)AIRBREAK_BLOCK_BREAKER_LAST_ROW_ADDR;
     volatile uint32_t *tick_counter = (volatile uint32_t *)AIRBREAK_BLOCK_BREAKER_TICK_COUNTER_ADDR;
+    volatile uint32_t *input_drain = (volatile uint32_t *)AIRBREAK_BLOCK_BREAKER_INPUT_DRAIN_ADDR;
     uint32_t state = *(volatile uint32_t *)AIRBREAK_BLOCK_BREAKER_STATE_ADDR;
     uint32_t done = 0u;
     uint32_t pressed;
@@ -870,11 +884,14 @@ static uint32_t block_breaker_post_render_wait_active(uint32_t wait_base, uint32
     uint32_t ticked = 0u;
     uint32_t stock_rendered;
     uint32_t tick;
+    uint32_t phase;
+    uint32_t provider_active;
 
     if (!block_breaker_valid_state(state)) {
         *last_button = 0u;
         *input_state = 0u;
         *tick_counter = 0u;
+        *input_drain = 0u;
         return wait_fn(wait_base, wait_ticks);
     }
 
@@ -887,39 +904,55 @@ static uint32_t block_breaker_post_render_wait_active(uint32_t wait_base, uint32
     }
 
     done = wait_fn(wait_base, wait_ticks);
+    pressed = ((*(volatile uint32_t *)GPIOG_IDR_ADDR & GPIOG_ENCODER_BUTTON_MASK) == 0u) ? 1u : 0u;
 
-    command = block_breaker_rotary_provider_command();
-    if (command != 0u) {
+    if (*input_drain != 0u) {
+        provider_active = block_breaker_rotary_provider_has_input();
+        phase = block_breaker_encoder_phase();
+        block_breaker_clear_rotary_provider();
         *input_state = block_breaker_encoder_packed_state(
-            block_breaker_encoder_phase(),
+            phase,
             BLOCK_BREAKER_ENCODER_ACC_NEUTRAL
         );
-    } else {
-        command = block_breaker_raw_encoder_command(input_state);
-    }
-    if (command != 0u) {
-        state = block_breaker_apply_command(state, command);
-        block_breaker_store_state(state);
-    }
-
-    pressed = ((*(volatile uint32_t *)GPIOG_IDR_ADDR & GPIOG_ENCODER_BUTTON_MASK) == 0u) ? 1u : 0u;
-    if (pressed != 0u && (previous_buttons & 0x01u) == 0u) {
-        state = block_breaker_apply_command(state, BLOCK_BREAKER_CMD_FIRE);
-        block_breaker_store_state(state);
-        command = BLOCK_BREAKER_CMD_FIRE;
-    }
-
-    if (((state >> 12) & 0x01u) != 0u) {
-        tick = *tick_counter + 1u;
-        if (tick >= BLOCK_BREAKER_TICK_DIVISOR) {
-            tick = 0u;
-            state = block_breaker_apply_command(state, BLOCK_BREAKER_CMD_TICK);
-            block_breaker_store_state(state);
-            ticked = 1u;
-        }
-        *tick_counter = tick;
-    } else {
         *tick_counter = 0u;
+        if (provider_active != 0u || phase != 3u || pressed != 0u) {
+            *input_drain = BLOCK_BREAKER_ENTRY_INPUT_DRAIN_FRAMES;
+        } else if (done != 0u) {
+            *input_drain = *input_drain - 1u;
+        }
+    } else {
+        command = block_breaker_rotary_provider_command();
+        if (command != 0u) {
+            *input_state = block_breaker_encoder_packed_state(
+                block_breaker_encoder_phase(),
+                BLOCK_BREAKER_ENCODER_ACC_NEUTRAL
+            );
+        } else {
+            command = block_breaker_raw_encoder_command(input_state);
+        }
+        if (command != 0u) {
+            state = block_breaker_apply_command(state, command);
+            block_breaker_store_state(state);
+        }
+
+        if (pressed != 0u && (previous_buttons & 0x01u) == 0u) {
+            state = block_breaker_apply_command(state, BLOCK_BREAKER_CMD_FIRE);
+            block_breaker_store_state(state);
+            command = BLOCK_BREAKER_CMD_FIRE;
+        }
+
+        if (((state >> 12) & 0x01u) != 0u) {
+            tick = *tick_counter + 1u;
+            if (tick >= BLOCK_BREAKER_TICK_DIVISOR) {
+                tick = 0u;
+                state = block_breaker_apply_command(state, BLOCK_BREAKER_CMD_TICK);
+                block_breaker_store_state(state);
+                ticked = 1u;
+            }
+            *tick_counter = tick;
+        } else {
+            *tick_counter = 0u;
+        }
     }
 
     stock_rendered = *render_count;
@@ -1208,6 +1241,8 @@ static uint32_t patch_block_breaker_entry_exec(uint32_t action_obj) {
             BLOCK_BREAKER_ENCODER_ACC_NEUTRAL
         );
     *(volatile uint32_t *)AIRBREAK_BLOCK_BREAKER_TICK_COUNTER_ADDR = 0u;
+    *(volatile uint32_t *)AIRBREAK_BLOCK_BREAKER_INPUT_DRAIN_ADDR =
+        BLOCK_BREAKER_ENTRY_INPUT_DRAIN_FRAMES;
     block_breaker_request_frame_draw();
     return 0u;
 }

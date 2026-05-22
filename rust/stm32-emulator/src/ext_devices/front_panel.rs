@@ -566,33 +566,45 @@ impl InputState {
     fn rotate(&mut self, rotation: Rotation, source: &str) {
         let idle = self.encoder_idle_high;
         let active = !idle;
-        let steps = match rotation {
-            Rotation::Clockwise => [
-                (active, idle),
-                (active, active),
-                (idle, active),
-                (idle, idle),
-            ],
-            Rotation::CounterClockwise => [
-                (idle, active),
-                (active, active),
-                (active, idle),
-                (idle, idle),
-            ],
-        };
-        self.encoder_steps.extend(steps);
-        self.encoder_a_active_read_logs = ENCODER_ACTIVE_READ_LOG_LIMIT;
-        self.encoder_b_active_read_logs = ENCODER_ACTIVE_READ_LOG_LIMIT;
+        let uses_rotary_provider = self.rotary_provider_obj.is_some();
+        if uses_rotary_provider {
+            self.encoder_steps.clear();
+            self.encoder_a = idle;
+            self.encoder_b = idle;
+            self.encoder_phase_ticks = 0;
+            self.encoder_phase_holding = false;
+            self.encoder_phase_observed = false;
+            self.pending_transitions.clear();
+        } else {
+            let steps = match rotation {
+                Rotation::Clockwise => [
+                    (active, idle),
+                    (active, active),
+                    (idle, active),
+                    (idle, idle),
+                ],
+                Rotation::CounterClockwise => [
+                    (idle, active),
+                    (active, active),
+                    (active, idle),
+                    (idle, idle),
+                ],
+            };
+            self.encoder_steps.extend(steps);
+            self.encoder_a_active_read_logs = ENCODER_ACTIVE_READ_LOG_LIMIT;
+            self.encoder_b_active_read_logs = ENCODER_ACTIVE_READ_LOG_LIMIT;
+        }
         self.pending_rotary_deltas.push_back(match rotation {
             Rotation::Clockwise => 1,
             Rotation::CounterClockwise => -1,
         });
         info!(
-            "front_panel_event source={} event=encoder_rotation direction={} encoder_a_pin={} encoder_b_pin={} queued_steps={} phase_min_hold_ticks={} phase_max_hold_ticks={}",
+            "front_panel_event source={} event=encoder_rotation direction={} encoder_a_pin={} encoder_b_pin={} rotary_provider_bridge={} queued_steps={} phase_min_hold_ticks={} phase_max_hold_ticks={}",
             source,
             rotation.name(),
             self.encoder_a_pin,
             self.encoder_b_pin,
+            uses_rotary_provider,
             self.encoder_steps.len(),
             ENCODER_PHASE_MIN_HOLD_TICKS,
             ENCODER_PHASE_MAX_HOLD_TICKS
@@ -1048,5 +1060,30 @@ mod tests {
         input.advance_encoder();
         assert!(!input.read_encoder(EncoderLine::A));
         assert!(!input.read_encoder(EncoderLine::B));
+    }
+
+    #[test]
+    fn rotary_provider_bridge_does_not_queue_raw_encoder_phases() {
+        let mut input = InputState::default();
+        input.configure(
+            &FrontPanelConfig {
+                rotary_provider_obj: Some("0x200174e4".to_string()),
+                ..FrontPanelConfig::default()
+            },
+            true,
+            true,
+        );
+
+        input.rotate(Rotation::Clockwise, "test");
+
+        assert!(input.advance_encoder().is_empty());
+        assert_eq!(input.encoder_steps.len(), 0);
+        assert!(input.read_encoder(EncoderLine::A));
+        assert!(input.read_encoder(EncoderLine::B));
+
+        let updates = input.drain_rotary_updates();
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].obj, 0x200174e4);
+        assert_eq!(updates[0].delta, 1);
     }
 }

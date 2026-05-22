@@ -44,6 +44,7 @@ declare -a FIRMWARE_IDS=()
 declare -A CASE_MAX_INSTRUCTIONS=()
 declare -A CASE_FRAME=()
 declare -A CASE_TARGET=()
+declare -A CASE_SELECT_AFTER=()
 declare -a CASE_IDS=()
 RUN_ONE_OUTCOME=""
 
@@ -91,11 +92,15 @@ load_firmwares() {
 }
 
 load_cases() {
-  local id target max_instructions frame
-  while IFS=$'\t' read -r id target max_instructions frame _; do
+  local id target max_instructions frame select_after
+  while IFS=$'\t' read -r id target max_instructions frame select_after _; do
     [[ -z "${id}" || "${id}" == \#* ]] && continue
     if [[ -z "${target:-}" || -z "${max_instructions:-}" || -z "${frame:-}" ]]; then
       echo "png_regression=fail stage=config reason=bad_case_manifest case=${id} result=fail" >&2
+      exit 2
+    fi
+    if [[ -n "${select_after:-}" && "${select_after}" != "-" && ! "${select_after}" =~ ^[0-9]+$ ]]; then
+      echo "png_regression=fail stage=config reason=bad_case_select_after case=${id} value=${select_after} result=fail" >&2
       exit 2
     fi
     airbreak_ui_screen_id "${target}" >/dev/null || exit $?
@@ -103,6 +108,7 @@ load_cases() {
     CASE_TARGET["${id}"]="${target}"
     CASE_MAX_INSTRUCTIONS["${id}"]="${max_instructions}"
     CASE_FRAME["${id}"]="${frame}"
+    CASE_SELECT_AFTER["${id}"]="${select_after:-}"
   done < "${CASES_FILE}"
 }
 
@@ -182,6 +188,8 @@ run_one() {
   local target="${CASE_TARGET[${case_id}]}"
   local max_instructions="${CASE_MAX_INSTRUCTIONS[${case_id}]}"
   local frame_relpath="${CASE_FRAME[${case_id}]}"
+  local select_after="${CASE_SELECT_AFTER[${case_id}]:-}"
+  local saved_select_after="${AIRBREAK_FRONT_PANEL_SELECT_AFTER}"
   local sequence=""
   local run_root="${OUT_DIR}/runs/${firmware_id}/${case_id}"
   local patched_fw="${OUT_DIR}/patched/${firmware_id}-${case_id}.bin"
@@ -199,11 +207,16 @@ run_one() {
     [[ "${REQUIRE_FIRMWARE}" == "1" ]] && return 1
     return 0
   fi
+  if [[ -n "${select_after}" && "${select_after}" != "-" ]]; then
+    AIRBREAK_FRONT_PANEL_SELECT_AFTER="${select_after}"
+  fi
   if ! sequence="$(airbreak_ui_front_panel_sequence_for_target "${target}")"; then
+    AIRBREAK_FRONT_PANEL_SELECT_AFTER="${saved_select_after}"
     RUN_ONE_OUTCOME="skip"
     echo "png_regression=skip firmware=${firmware_id} case=${case_id} reason=target_not_enabled target=${target} ui_screens=${AIRBREAK_UI_SCREENS} result=skip"
     return 0
   fi
+  AIRBREAK_FRONT_PANEL_SELECT_AFTER="${saved_select_after}"
 
   rm -rf -- "${run_root}"
   mkdir -p "$(dirname "${patched_fw}")" "$(dirname "${log_path}")" "$(dirname "${diff_png}")"

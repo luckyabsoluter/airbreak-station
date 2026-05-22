@@ -3,6 +3,8 @@
 This directory contains static LCD PNG baselines for firmware-specific regression checks. Cases name UI targets, not raw
 encoder row counts. `scripts/run-png-regressions.sh` derives the front-panel sequence from the shared `AIRBREAK_UI_SCREENS`
 model so changing menu order does not require editing every case.
+The optional `select_after` column overrides the encoder-press delay for a case; `0` is used to catch stale rotation input
+leaking into Block Breaker immediately after menu entry.
 
 Run the default `air10-vauto` set:
 
