@@ -1644,7 +1644,7 @@ uint32_t patch_custom_about_page_seed_hook(
             menu_obj,
             p3,
             p4,
-            BLOCK_BREAKER_STATUS_ID
+            CUSTOM_ABOUT_DETAIL_ID
         );
     }
 
