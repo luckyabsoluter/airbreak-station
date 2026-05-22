@@ -18,6 +18,8 @@ Refresh baselines after an intentional UI change:
 AIRBREAK_PNG_REGRESSION_MODE=update ./scripts/run-png-regressions.sh
 ```
 
+New or refreshed baseline PNGs should be written with maximum PNG compression; do not bulk recompress existing baselines.
+
 Useful selectors:
 
 ```bash
