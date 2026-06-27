@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust-front-panel:
+    name: Rust front-panel tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            ninja-build \
+            pkg-config
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/stm32-emulator/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust/stm32-emulator/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Validate shell scripts
+        run: |
+          bash -n \
+            scripts/lib/airbreak_ui_model.sh \
+            scripts/lib/rust_emulator_env.sh \
+            scripts/run-png-regressions.sh \
+            scripts/run-station-pipeline.sh
+
+      - name: Run front-panel unit tests
+        working-directory: rust/stm32-emulator
+        run: cargo test front_panel
+
+  png-regressions:
+    name: PNG firmware regressions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      AIRBREAK_CI_FIRMWARE_URL: ${{ secrets.AIRBREAK_CI_FIRMWARE_URL }}
+      AIRBREAK_PNG_REGRESSION_FIRMWARES: air10-vauto
+      AIRBREAK_PNG_REGRESSION_REQUIRE_FIRMWARE: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            binutils-arm-none-eabi \
+            build-essential \
+            cmake \
+            gcc-arm-none-eabi \
+            gzip \
+            ninja-build \
+            pkg-config \
+            python3
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/stm32-emulator/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust/stm32-emulator/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Cache STM32 SVD
+        uses: actions/cache@v4
+        with:
+          path: .work/svd-cache
+          key: ${{ runner.os }}-stm32f40x-svd-v1
+
+      - name: Download private firmware
+        run: |
+          if [[ -z "${AIRBREAK_CI_FIRMWARE_URL}" ]]; then
+            echo "AIRBREAK_CI_FIRMWARE_URL GitHub secret is required for firmware PNG regressions." >&2
+            exit 1
+          fi
+          mkdir -p firmware
+          curl --request GET --fail --silent --show-error --location --retry 3 \
+            "${AIRBREAK_CI_FIRMWARE_URL}" \
+            --output firmware/resmed-air10-vauto.bin
+          test -s firmware/resmed-air10-vauto.bin
+
+      - name: Run PNG firmware regressions
+        run: ./scripts/run-png-regressions.sh
+
+      - name: Upload frame PNGs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: airbreak-png-regression-frames
+          path: |
+            artifacts/png-regressions/runs/**/*.png
+            artifacts/png-regressions/diffs/*.png
+            artifacts/png-regressions/diffs/**/*.png
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload regression logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: airbreak-png-regression-logs
+          path: |
+            artifacts/png-regressions/logs/*.log
+            artifacts/png-regressions/logs/**/*.log
+          if-no-files-found: warn
+          retention-days: 14

@@ -74,6 +74,10 @@ Runtime logs, captured actual PNGs, patched firmware, and diff PNGs are written 
 `artifacts/png-regressions/`, which is ignored by git. Use `AIRBREAK_PNG_REGRESSION_FIRMWARES=all` or `firmware-list` to run
 the same static PNG cases across the local firmware set.
 
+GitHub Actions runs the `air10-vauto` PNG regression set by downloading the private source firmware with a GET request from
+the `AIRBREAK_CI_FIRMWARE_URL` repository secret. The workflow uploads captured frame PNGs, diff PNGs, and logs as artifacts;
+source and patched firmware binaries are not uploaded.
+
 Patch only, without emulator:
 
 ```bash
