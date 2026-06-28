@@ -18,7 +18,7 @@ jobs:
         shell: bash
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.0
 
       - name: Install build dependencies
         run: |
@@ -30,7 +30,7 @@ jobs:
             pkg-config
 
       - name: Cache Cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -65,7 +65,7 @@ jobs:
       AIRBREAK_PNG_REGRESSION_REQUIRE_FIRMWARE: "1"
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.0
 
       - name: Install build dependencies
         run: |
@@ -81,7 +81,7 @@ jobs:
             python3
 
       - name: Cache Cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -92,7 +92,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Cache STM32 SVD
-        uses: actions/cache@v4
+        uses: actions/cache@v6.1.0
         with:
           path: .work/svd-cache
           key: ${{ runner.os }}-stm32f40x-svd-v1
@@ -121,7 +121,7 @@ jobs:
 
       - name: Upload frame PNGs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: airbreak-png-regression-frames
           path: |
@@ -133,7 +133,7 @@ jobs:
 
       - name: Upload regression logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: airbreak-png-regression-logs
           path: |
