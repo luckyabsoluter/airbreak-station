@@ -326,6 +326,7 @@ pub fn run_emulator(config: Config, svd_device: SvdDevice, args: Args) -> Result
         let addr_hits_hook = addr_hits.clone();
         let trace_hits_hook = trace_hits.clone();
         let sdl_framebuffers_hook = sdl_framebuffers.clone();
+        let has_sdl_framebuffers = !sdl_framebuffers_hook.is_empty();
         let image_framebuffers_hook = image_framebuffers.clone();
         let front_panel_snapshot_dir = args.front_panel_snapshot_dir.clone();
         let front_panel_at = args.front_panel_at;
@@ -438,12 +439,14 @@ pub fn run_emulator(config: Config, svd_device: SvdDevice, args: Args) -> Result
                         };
                         crate::ext_devices::front_panel::tick(&sys);
                     }
-                    for fb in &sdl_framebuffers_hook {
-                        fb.borrow_mut().maybe_redraw();
-                    }
-                    if !SDL.lock().unwrap().pump_events(&sdl_framebuffers_hook) {
-                        STOP_REQUESTED.store(true, Ordering::Relaxed);
-                        uc.emu_stop().unwrap();
+                    if has_sdl_framebuffers {
+                        for fb in &sdl_framebuffers_hook {
+                            fb.borrow_mut().maybe_redraw();
+                        }
+                        if !SDL.lock().unwrap().pump_events(&sdl_framebuffers_hook) {
+                            STOP_REQUESTED.store(true, Ordering::Relaxed);
+                            uc.emu_stop().unwrap();
+                        }
                     }
                 }
             })
