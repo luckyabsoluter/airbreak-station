@@ -59,10 +59,6 @@ jobs:
     defaults:
       run:
         shell: bash
-    env:
-      AIRBREAK_CI_FIRMWARE_URL: ${{ secrets.AIRBREAK_CI_FIRMWARE_URL }}
-      AIRBREAK_PNG_REGRESSION_FIRMWARES: air10-vauto
-      AIRBREAK_PNG_REGRESSION_REQUIRE_FIRMWARE: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.0
@@ -98,6 +94,8 @@ jobs:
           key: ${{ runner.os }}-stm32f40x-svd-v1
 
       - name: Download private firmware
+        env:
+          AIRBREAK_CI_FIRMWARE_URL: ${{ secrets.AIRBREAK_CI_FIRMWARE_URL }}
         run: |
           if [[ -z "${AIRBREAK_CI_FIRMWARE_URL}" ]]; then
             echo "AIRBREAK_CI_FIRMWARE_URL GitHub secret is required for firmware PNG regressions." >&2
@@ -110,6 +108,9 @@ jobs:
           test -s firmware/resmed-air10-vauto.bin
 
       - name: Run PNG firmware regressions
+        env:
+          AIRBREAK_PNG_REGRESSION_FIRMWARES: air10-vauto
+          AIRBREAK_PNG_REGRESSION_REQUIRE_FIRMWARE: "1"
         run: ./scripts/run-png-regressions.sh
 
       - name: Delete firmware binaries before artifact upload
