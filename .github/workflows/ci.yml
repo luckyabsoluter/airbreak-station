@@ -112,6 +112,13 @@ jobs:
       - name: Run PNG firmware regressions
         run: ./scripts/run-png-regressions.sh
 
+      - name: Delete firmware binaries before artifact upload
+        if: always()
+        run: |
+          rm -f -- firmware/*.bin
+          rm -f -- artifacts/firmware/*.bin
+          rm -f -- artifacts/png-regressions/patched/*.bin
+
       - name: Upload frame PNGs
         if: always()
         uses: actions/upload-artifact@v4
